@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 type Config struct {
@@ -35,7 +37,8 @@ func main() {
 		modelType = ""
 	}
 
-	config, err := loadConfig("config.yaml")
+	configPath := os.Getenv("HOME") + "/.civitai-downloader/config.yaml"
+	config, err := loadConfig(configPath)
 	if err != nil {
 		fmt.Println("Error loading config:", err)
 		return
@@ -116,12 +119,27 @@ func downloadFile(outputPath string, url string) error {
 		}
 	}
 
-	out, err := os.Create(outputPath)
+	file, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %v", outputPath, err)
 	}
-	defer out.Close()
+	defer file.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	bar := progressbar.NewOptions(
+		int(resp.ContentLength),
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionSetDescription("[Downloading] "),
+		progressbar.OptionSetTheme(
+			progressbar.Theme{
+				Saucer:        "[green]=[reset]",
+				SaucerHead:    "[green]>[reset]",
+				SaucerPadding: " ",
+				BarStart:      "|",
+				BarEnd:        "|",
+			}),
+	)
+
+	_, err = io.Copy(io.MultiWriter(file, bar), resp.Body)
 	return err
 }
