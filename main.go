@@ -2,26 +2,14 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
-	"github.com/schollz/progressbar/v3"
+	"github.com/yansigit/civitai-downloader/config"
+	"github.com/yansigit/civitai-downloader/downloader"
 )
-
-type Config struct {
-	Civitai struct {
-		Token string `yaml:"token"`
-	} `yaml:"civitai"`
-	ComfyUI struct {
-		BaseModelPath string `yaml:"base_model_path"`
-	} `yaml:"comfyui"`
-}
 
 func main() {
 	if len(os.Args) != 3 {
@@ -38,7 +26,7 @@ func main() {
 	}
 
 	configPath := os.Getenv("HOME") + "/.civitai-downloader/config.yaml"
-	config, err := loadConfig(configPath)
+	config, err := config.LoadConfig(configPath)
 	if err != nil {
 		fmt.Println("Error loading config:", err)
 		return
@@ -71,75 +59,11 @@ func main() {
 
 	outputPath := filepath.Join(baseModelPath, modelType, fmt.Sprintf("temp-%d.safetensors", time.Now().UnixNano()))
 
-	err = downloadFile(outputPath, downloadURL)
+	err = downloader.DownloadFile(outputPath, downloadURL)
 	if err != nil {
 		fmt.Printf("Error downloading %s: %v\n", modelType, err)
 		return
 	}
 
 	fmt.Printf("Model downloaded successfully to %s\n", filepath.Dir(outputPath))
-}
-
-func loadConfig(filename string) (*Config, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	config := &Config{}
-	err = yaml.Unmarshal(data, config)
-	if err != nil {
-		return nil, err
-	}
-
-	return config, nil
-}
-
-func downloadFile(outputPath string, url string) error {
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directories: %v", err)
-	}
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to fetch %s: %v", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP error for %s: %v", url, resp.StatusCode)
-	}
-
-	header := resp.Header.Get("content-disposition")
-	if header != "" {
-		parts := strings.Split(header, "filename=")
-		if len(parts) > 1 {
-			outputPath = filepath.Join(filepath.Dir(outputPath), strings.Trim(parts[1], "\""))
-		}
-	}
-
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %v", outputPath, err)
-	}
-	defer file.Close()
-
-	bar := progressbar.NewOptions(
-		int(resp.ContentLength),
-		progressbar.OptionSetWidth(15),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionSetDescription("[Downloading] "),
-		progressbar.OptionSetTheme(
-			progressbar.Theme{
-				Saucer:        "[green]=[reset]",
-				SaucerHead:    "[green]>[reset]",
-				SaucerPadding: " ",
-				BarStart:      "|",
-				BarEnd:        "|",
-			}),
-	)
-
-	_, err = io.Copy(io.MultiWriter(file, bar), resp.Body)
-	return err
 }
