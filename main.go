@@ -74,7 +74,7 @@ func main() {
 		return
 	}
 
-	fmt.Printf("Model downloaded successfully to %s\n", outputPath)
+	fmt.Printf("Model downloaded successfully to %s\n", filepath.Dir(outputPath))
 }
 
 func loadConfig(filename string) (*Config, error) {
@@ -108,8 +108,7 @@ func downloadFile(outputPath string, url string) error {
 		return fmt.Errorf("HTTP error for %s: %v", url, resp.StatusCode)
 	}
 
-	// Check Content-Disposition header for filename
-	header := resp.Header.Get("Content-Disposition")
+	header := resp.Header.Get("content-disposition")
 	if header != "" {
 		parts := strings.Split(header, "filename=")
 		if len(parts) > 1 {
