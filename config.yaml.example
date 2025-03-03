@@ -1,0 +1,4 @@
+civitai:
+  token: your_token
+comfyui:
+  base_model_path: "your_base_model_path"

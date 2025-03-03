@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -29,6 +30,11 @@ func main() {
 	modelType := os.Args[1]
 	modelIdentifier := os.Args[2]
 
+	if strings.HasPrefix(os.Args[1], "urn:air:") {
+		modelIdentifier = os.Args[1]
+		modelType = ""
+	}
+
 	config, err := loadConfig("config.yaml")
 	if err != nil {
 		fmt.Println("Error loading config:", err)
@@ -47,19 +53,20 @@ func main() {
 		fmt.Println("Base model path not specified, using current directory")
 	}
 
-	outputPath := filepath.Join(baseModelPath, modelType, "add-detail-xl.safetensors")
-
 	var downloadURL string
 	if strings.HasPrefix(modelIdentifier, "urn:air:") {
-		// Handle AIR identifier
 		parts := strings.Split(modelIdentifier, ":")
-		modelID := parts[len(parts)-2]
-		version := parts[len(parts)-1]
-		downloadURL = fmt.Sprintf("https://api.civitai.com/v1/air/%s/%s?token=%s", modelID, version, token)
+		if modelType == "" {
+			modelType = parts[3]
+		}
+		modelInfo := strings.Split(parts[len(parts)-1], "@")
+		version := modelInfo[1]
+		downloadURL = fmt.Sprintf("https://civitai.com/api/download/models/%s?token=%s", version, token)
 	} else {
-		// Handle direct URL
 		downloadURL = modelIdentifier + "?token=" + token
 	}
+
+	outputPath := filepath.Join(baseModelPath, modelType, fmt.Sprintf("temp-%d.safetensors", time.Now().UnixNano()))
 
 	err = downloadFile(outputPath, downloadURL)
 	if err != nil {
@@ -87,8 +94,7 @@ func loadConfig(filename string) (*Config, error) {
 
 func downloadFile(outputPath string, url string) error {
 	dir := filepath.Dir(outputPath)
-	err := os.MkdirAll(dir, 0755)
-	if err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directories: %v", err)
 	}
 
@@ -100,6 +106,15 @@ func downloadFile(outputPath string, url string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP error for %s: %v", url, resp.StatusCode)
+	}
+
+	// Check Content-Disposition header for filename
+	header := resp.Header.Get("Content-Disposition")
+	if header != "" {
+		parts := strings.Split(header, "filename=")
+		if len(parts) > 1 {
+			outputPath = filepath.Join(filepath.Dir(outputPath), strings.Trim(parts[1], "\""))
+		}
 	}
 
 	out, err := os.Create(outputPath)
