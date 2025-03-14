@@ -12,3 +12,8 @@ A Simple and easy tool to download models from [Civitai](https://civitai.com/)
 ```bash
 ./civitai-downloader <sub_dir> <model_url|AIR>
 ```
+
+## TODO
+
+- [v] Add support for downloading models from [Civitai](https://civitai.com/)
+- [v] Download related image and metadata along with the model.

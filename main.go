@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -44,22 +45,25 @@ func main() {
 		fmt.Println("Base model path not specified, using current directory")
 	}
 
-	var downloadURL string
+	var modelVersionId string
 	if strings.HasPrefix(modelIdentifier, "urn:air:") {
 		parts := strings.Split(modelIdentifier, ":")
 		if modelType == "" {
 			modelType = parts[3]
 		}
 		modelInfo := strings.Split(parts[len(parts)-1], "@")
-		version := modelInfo[1]
-		downloadURL = fmt.Sprintf("https://civitai.com/api/download/models/%s?token=%s", version, token)
+		modelVersionId = modelInfo[1]
 	} else {
-		downloadURL = modelIdentifier + "?token=" + token
+		re := regexp.MustCompile(`https://civitai.com/models/(\d+)`)
+		matches := re.FindStringSubmatch(modelIdentifier)
+		if len(matches) == 2 {
+			modelVersionId = matches[1]
+		}
 	}
-
+	fmt.Println("Model version ID:", modelVersionId)
 	outputPath := filepath.Join(baseModelPath, modelType, fmt.Sprintf("temp-%d.safetensors", time.Now().UnixNano()))
 
-	err = downloader.DownloadFile(outputPath, downloadURL)
+	err = downloader.DownloadAll(modelType, baseModelPath, modelVersionId)
 	if err != nil {
 		fmt.Printf("Error downloading %s: %v\n", modelType, err)
 		return
