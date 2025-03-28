@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/yansigit/civitai-downloader/config"
 )
 
 // ModelVersion represents the model version information from the Civitai API
@@ -101,7 +102,7 @@ func DownloadFile(outputPath, url, modelVersionId string) (string, error) {
 }
 
 // DownloadAll downloads all available files for a given model ID
-func DownloadAll(modelType, baseModelPath, modelID string) error {
+func DownloadAll(modelType, baseModelPath, modelID string, config *config.Config) error {
 	modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
 	resp, err := http.Get(modelURL)
 	if err != nil {
@@ -125,8 +126,11 @@ func DownloadAll(modelType, baseModelPath, modelID string) error {
 		return fmt.Errorf("failed to create model type directory: %w", err)
 	}
 
+	modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
+
 	outputPath, err := DownloadFile(filepath.Join(dir, filepath.Base(baseModelPath)), modelVersion.DownloadURL, modelID)
 	if err != nil {
+		fmt.Println("Download failed from URL:", modelVersion.DownloadURL)
 		return fmt.Errorf("failed to download model file: %w", err)
 	}
 

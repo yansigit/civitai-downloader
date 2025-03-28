@@ -63,7 +63,7 @@ func main() {
 	fmt.Println("Model version ID:", modelVersionId)
 	outputPath := filepath.Join(baseModelPath, modelType, fmt.Sprintf("temp-%d.safetensors", time.Now().UnixNano()))
 
-	err = downloader.DownloadAll(modelType, baseModelPath, modelVersionId)
+	err = downloader.DownloadAll(modelType, baseModelPath, modelVersionId, config)
 	if err != nil {
 		fmt.Printf("Error downloading %s: %v\n", modelType, err)
 		return
