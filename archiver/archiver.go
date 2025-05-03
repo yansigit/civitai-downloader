@@ -35,88 +35,92 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 }
 
 // Run executes the archiving process
-func (a *Archiver) Run(query string) error {
+func (a *Archiver) Run(query string, types []string) error {
 	page := 1
-	limit := 1
+	limit := 10
 	token := a.Config.Civitai.Token
 
-	for {
-		request := downloader.CivitModelsRequest{
-			Limit: limit,
-			Page:  page,
-			Query: query,
-		}
-		log.Printf("Requesting models with parameters: %+v", request)
-		models, metadata, err := downloader.GetModels(request, token)
-		if err != nil {
-			return fmt.Errorf("failed to fetch models: %w", err)
-		}
-
-		filteredModels := []downloader.Model{}
-		for _, model := range models {
-			if sliceContains(a.Config.Filters.BaseModels, model.BaseModel) {
-				filteredModels = append(filteredModels, model)
+	for _, modelType := range types {
+		page = 1 // Reset page for each model type
+		for {
+			request := downloader.CivitModelsRequest{
+				Limit: limit,
+				Page:  page,
+				Query: query,
+				Nsfw:  "true",
+				Types: []string{modelType}, // Send a single type per request
 			}
-		}
-		log.Printf("Filtered models based on BaseModels: %+v", filteredModels)
-		models = filteredModels
-
-		for _, model := range models {
-			log.Printf("Processing model: %s (ID: %d)", model.Name, model.ID)
-
-			// Fetch model versions
-			versions, err := downloader.GetModelVersions(model.ID, token)
+			log.Printf("Requesting models with parameters: %+v", request)
+			models, metadata, err := downloader.GetModels(request, token)
 			if err != nil {
-				log.Printf("Failed to fetch versions for model %s: %v", model.Name, err)
-				continue
+				return fmt.Errorf("failed to fetch models for type %s: %w", modelType, err)
 			}
 
-			// Process each version
-			for _, version := range versions {
-				destinationPath := filepath.Join(a.Config.Storage.Path, model.Type, model.BaseModel)
-				if err := a.StorageBackend.EnsureDirectory(destinationPath); err != nil {
-					log.Printf("Failed to create directory for model %s: %v", model.Name, err)
+			filteredModels := []downloader.Model{}
+			for _, model := range models {
+				if sliceContains(a.Config.Filters.BaseModels, model.BaseModel) {
+					filteredModels = append(filteredModels, model)
+				}
+			}
+			log.Printf("Filtered models based on BaseModels: %+v", filteredModels)
+
+			for _, model := range filteredModels {
+				log.Printf("Processing model: %s (ID: %d)", model.Name, model.ID)
+
+				// Fetch model versions
+				versions, err := downloader.GetModelVersions(model.ID, token)
+				if err != nil {
+					log.Printf("Failed to fetch versions for model %s: %v", model.Name, err)
 					continue
 				}
 
-				// Save main file
-				if len(version.Files) > 0 {
-					file := version.Files[0]
-					if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, version.Name, file.Type); err != nil {
-						log.Printf("Failed to save file for model %s: %v", model.Name, err)
+				// Process each version
+				for _, version := range versions {
+					destinationPath := filepath.Join(a.Config.Storage.Path, model.Type, model.BaseModel)
+					if err := a.StorageBackend.EnsureDirectory(destinationPath); err != nil {
+						log.Printf("Failed to create directory for model %s: %v", model.Name, err)
 						continue
 					}
-				}
 
-				// Save metadata
-				metadata, err := json.Marshal(version)
-				if err == nil {
-					if err := a.StorageBackend.SaveMetadata(metadata, destinationPath, version.Name); err != nil {
-						log.Printf("Failed to save metadata for model %s: %v", model.Name, err)
+					// Save main file
+					if len(version.Files) > 0 {
+						file := version.Files[0]
+						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, version.Name, file.Type); err != nil {
+							log.Printf("Failed to save file for model %s: %v", model.Name, err)
+							continue
+						}
 					}
-				}
 
-				// Save description
-				// Save description (handle pointer)
-				if version.Description != nil && *version.Description != "" {
-					// Dereference the pointer to pass the string value
-					if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
-						log.Printf("Failed to save description for model %s: %v", model.Name, err)
+					// Save metadata
+					metadata, err := json.Marshal(version)
+					if err == nil {
+						if err := a.StorageBackend.SaveMetadata(metadata, destinationPath, version.Name); err != nil {
+							log.Printf("Failed to save metadata for model %s: %v", model.Name, err)
+						}
+					}
+
+					// Save description
+					// Save description (handle pointer)
+					if version.Description != nil && *version.Description != "" {
+						// Dereference the pointer to pass the string value
+						if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
+							log.Printf("Failed to save description for model %s: %v", model.Name, err)
+						}
 					}
 				}
 			}
-		}
 
-		if !metadata.HasNext {
-			break
+			if !metadata.HasNext {
+				break
+			}
+			page++ // Increment page for the next request
 		}
-		page++
 	}
 
 	return nil
 }
 
-// sliceContains checks if a slice contains a specific item
+// sliceContains checks if a slice contains a specific item.
 func sliceContains(slice []string, item string) bool {
 	for _, v := range slice {
 		if v == item {

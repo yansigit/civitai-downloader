@@ -34,7 +34,7 @@ type CivitModelsRequest struct {
 	Query                  string   `json:"query,omitempty"`
 	Tag                    string   `json:"tag,omitempty"`
 	Username               string   `json:"username,omitempty"`
-	Types                  []string `json:"types,omitempty"`
+	Types                  []string `json:"types,omitempty"` // Enum: Checkpoint, TextualInversion, Hypernetwork, etc.
 	Sort                   string   `json:"sort,omitempty"`
 	Period                 string   `json:"period,omitempty"`
 	Rating                 int      `json:"rating,omitempty"`
@@ -64,7 +64,6 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 		params.Add("page", strconv.Itoa(request.Page))
 	}
 	if request.Sort != "" {
-		// Ensure the sort parameter matches API expectations, e.g., "Highest Rated"
 		params.Add("sort", request.Sort)
 	}
 	if len(request.Types) > 0 {
@@ -72,13 +71,49 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 	}
 	if request.Query != "" {
 		params.Add("query", request.Query)
-		log.Printf("Query parameter set to: %s", request.Query)
 	}
-	// Add other parameters from CivitModelsRequest as needed, checking API docs
 	if request.Cursor != "" {
 		params.Add("cursor", request.Cursor)
 	}
-	// ... add other relevant parameters like Tag, Username, Period, Rating, etc.
+	if request.Tag != "" {
+		params.Add("tag", request.Tag)
+	}
+	if request.Username != "" {
+		params.Add("username", request.Username)
+	}
+	if request.Period != "" {
+		params.Add("period", request.Period)
+	}
+	if request.Rating > 0 {
+		params.Add("rating", strconv.Itoa(request.Rating))
+	}
+	if request.Favorites {
+		params.Add("favorites", "true")
+	}
+	if request.Hidden {
+		params.Add("hidden", "true")
+	}
+	if request.PrimaryFileOnly {
+		params.Add("primaryFileOnly", "true")
+	}
+	if request.AllowDerivatives {
+		params.Add("allowDerivatives", "true")
+	}
+	if request.AllowDifferentLicenses {
+		params.Add("allowDifferentLicenses", "true")
+	}
+	if request.AllowCommercialUse != "" {
+		params.Add("allowCommercialUse", request.AllowCommercialUse)
+	}
+	if request.Nsfw != "" {
+		params.Add("nsfw", request.Nsfw)
+	}
+	if len(request.BaseModels) > 0 {
+		params.Add("baseModels", strings.Join(request.BaseModels, ","))
+	}
+	if request.Ids != "" {
+		params.Add("ids", request.Ids)
+	}
 
 	if usePostFetchFiltering {
 		log.Printf("Post-fetch filtering enabled for BaseModels: %v", request.BaseModels)

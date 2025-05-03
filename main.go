@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/yansigit/civitai-downloader/archiver"
 	"github.com/yansigit/civitai-downloader/config"
@@ -21,7 +22,19 @@ func main() {
 	if len(os.Args) < 2 {
 		log.Fatalf("Usage: %s <query>", os.Args[0])
 	}
+	// Parse query argument, ensuring it excludes any "--query" prefix
 	query := os.Args[1]
+
+	// Parse types argument if provided
+	var types []string
+	for i, arg := range os.Args {
+		if arg == "--types" && i+1 < len(os.Args) {
+			types = strings.Split(os.Args[i+1], ",")
+		}
+	}
+	if query == "--query" && len(os.Args) > 2 {
+		query = os.Args[2]
+	}
 
 	arch, err := archiver.NewArchiver(cfg, query)
 	if err != nil {
@@ -29,7 +42,7 @@ func main() {
 	}
 
 	// Run archiver
-	if err := arch.Run(query); err != nil {
+	if err := arch.Run(query, types); err != nil {
 		log.Fatalf("Archiving process failed: %v", err)
 	}
 
