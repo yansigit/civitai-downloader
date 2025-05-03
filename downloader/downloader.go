@@ -15,13 +15,17 @@ import (
 
 // ModelVersion represents the model version information from the Civitai API
 type ModelVersion struct {
-	ID          int64   `json:"id"`
-	ModelID     int64   `json:"modelId"`
-	Name        string  `json:"name"`
-	Files       []File  `json:"files"`
-	Images      []Image `json:"images"`
-	Description string  `json:"description"`
-	DownloadURL string  `json:"downloadUrl"`
+	ID            int64    `json:"id"`
+	ModelID       int64    `json:"modelId"`
+	Name          string   `json:"name"`
+	BaseModel     string   `json:"baseModel"`     // Added
+	BaseModelType string   `json:"baseModelType"` // Added
+	PublishedAt   string   `json:"publishedAt"`   // Added
+	Files         []File   `json:"files"`
+	Images        []Image  `json:"images"`      // Assuming Image struct is defined below or elsewhere
+	Description   *string  `json:"description"` // Changed to pointer
+	DownloadURL   string   `json:"downloadUrl"`
+	TrainedWords  []string `json:"trainedWords"` // Added
 }
 
 // File represents a file associated with the model version
@@ -41,8 +45,38 @@ type Image struct {
 	Height int    `json:"height"`
 }
 
+// --- Structs needed for GetModelVersions response ---
+
+// ModelDetail represents the full response when fetching a single model by ID.
+type ModelDetail struct {
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Description   *string        `json:"description"`
+	Type          string         `json:"type"`
+	Tags          []string       `json:"tags"`
+	Creator       Creator        `json:"creator"`
+	ModelVersions []ModelVersion `json:"modelVersions"`
+	// Add other top-level fields as needed
+}
+
+// Creator represents the model author.
+type Creator struct {
+	Username string  `json:"username"`
+	Image    *string `json:"image"` // URL to avatar, make optional
+}
+
+// FileMetadata contains format, size, and precision info.
+// Added here as it was part of the removed structs in civitai_api.go
+// and might be needed if File struct is expanded later.
+type FileMetadata struct {
+	Format string `json:"format"` // e.g., "SafeTensor", "PickleTensor"
+	Size   string `json:"size"`   // e.g., "full", "pruned"
+	FP     string `json:"fp"`     // e.g., "fp16", "fp32"
+}
+
 const (
 	APIModelVersions = "https://civitai.com/api/v1/model-versions/"
+	APIModels        = "https://civitai.com/api/v1/models/" // Added base models endpoint
 )
 
 // DownloadFile downloads a single file from the given URL to the specified path and returns the saved filename
@@ -159,10 +193,14 @@ func DownloadAll(modelType, baseModelPath, modelID string, config *config.Config
 		return fmt.Errorf("failed to save metadata: %w", err)
 	}
 
-	if modelVersion.Description != "" {
+	// Handle optional description pointer
+	if modelVersion.Description != nil && *modelVersion.Description != "" {
 		descPath := fmt.Sprintf("%s.description.txt", filepath.Join(filepath.Dir(outputPath), baseName))
-		if err := os.WriteFile(descPath, []byte(modelVersion.Description), 0644); err != nil {
-			return fmt.Errorf("failed to save description: %w", err)
+		// Dereference the pointer to get the string value
+		if err := os.WriteFile(descPath, []byte(*modelVersion.Description), 0644); err != nil {
+			// Log warning instead of failing the whole download?
+			fmt.Printf("Warning: failed to save description: %v\n", err)
+			// return fmt.Errorf("failed to save description: %w", err)
 		}
 	}
 
