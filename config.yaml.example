@@ -1,4 +1,28 @@
 civitai:
-  token: your_token
+  token: "YOUR_CIVITAI_API_TOKEN"
+
+# Optional filters to apply when archiving
+filters:
+  # Leave empty or omit to include all types
+  types:
+    - Checkpoint
+    - LORA
+  # Leave empty or omit to include all base models
+  baseModels:
+    - SDXL 1.0
+    - Pony
+
+# Where to save the downloaded models
+storage:
+  # Type can be "local" or a cloud provider name (e.g., "google_drive", "pixeldrain" - future)
+  type: "local"
+  # Path for local storage, or root identifier for cloud storage
+  path: "/path/to/your/model/archive"
+  # Cloud-specific settings (future)
+  # cloud_settings:
+  #   credentials_file: "/path/to/credentials.json"
+  #   folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID"
+
+# (Keep existing comfyui section if needed for other purposes, or remove if solely an archiver)
 comfyui:
-  base_model_path: "your_base_model_path"
+  base_model_path: "/path/to/ComfyUI/models" # May become redundant if storage.path is used

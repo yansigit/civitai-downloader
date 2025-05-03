@@ -20,7 +20,7 @@ func main() {
 
 	// Initialize archiver
 	if len(os.Args) < 2 {
-		log.Fatalf("Usage: %s <query>", os.Args[0])
+		log.Fatalf("Usage: %s <query> [--baseModels <model1,model2,...>] [--types <type1,type2,...>]", os.Args[0])
 	}
 	// Parse query argument, ensuring it excludes any "--query" prefix
 	query := os.Args[1]
@@ -36,13 +36,21 @@ func main() {
 		query = os.Args[2]
 	}
 
+	// Parse baseModels argument if provided
+	var baseModels []string
+	for i, arg := range os.Args {
+		if arg == "--baseModels" && i+1 < len(os.Args) {
+			baseModels = strings.Split(os.Args[i+1], ",")
+		}
+	}
+
 	arch, err := archiver.NewArchiver(cfg, query)
 	if err != nil {
 		log.Fatalf("Error initializing archiver: %v", err)
 	}
 
-	// Run archiver
-	if err := arch.Run(query, types); err != nil {
+	// Run archiver with baseModels
+	if err := arch.Run(query, types, baseModels); err != nil {
 		log.Fatalf("Archiving process failed: %v", err)
 	}
 

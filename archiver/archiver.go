@@ -35,7 +35,7 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 }
 
 // Run executes the archiving process
-func (a *Archiver) Run(query string, types []string) error {
+func (a *Archiver) Run(query string, types []string, baseModels []string) error {
 	page := 1
 	limit := 10
 	token := a.Config.Civitai.Token
@@ -58,7 +58,7 @@ func (a *Archiver) Run(query string, types []string) error {
 
 			filteredModels := []downloader.Model{}
 			for _, model := range models {
-				if sliceContains(a.Config.Filters.BaseModels, model.BaseModel) {
+				if sliceContains(baseModels, model.BaseModel) {
 					filteredModels = append(filteredModels, model)
 				}
 			}
@@ -100,9 +100,7 @@ func (a *Archiver) Run(query string, types []string) error {
 					}
 
 					// Save description
-					// Save description (handle pointer)
 					if version.Description != nil && *version.Description != "" {
-						// Dereference the pointer to pass the string value
 						if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
 							log.Printf("Failed to save description for model %s: %v", model.Name, err)
 						}

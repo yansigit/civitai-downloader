@@ -13,10 +13,11 @@ import (
 
 // Model represents a model from the Civitai API
 type Model struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	BaseModel string `json:"baseModel"`
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	BaseModel     string         `json:"baseModel"`
+	ModelVersions []ModelVersion `json:"modelVersions"`
 }
 
 // Metadata represents pagination metadata from the Civitai API
@@ -209,6 +210,13 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 	}
 
 	log.Printf("Fetched %d models. Metadata: %+v", len(result.Items), result.Metadata)
+
+	// Print a summary of the fetched models
+	for _, model := range result.Items {
+		for _, version := range model.ModelVersions {
+			log.Printf("Model Name: %s, Type: %s, BaseModel: %s", model.Name, model.Type, version.BaseModel)
+		}
+	}
 
 	// Apply post-fetch filtering if needed
 	if usePostFetchFiltering && len(request.BaseModels) > 0 {
