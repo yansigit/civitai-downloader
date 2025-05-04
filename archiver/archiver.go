@@ -119,10 +119,12 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 				}
 			}
 
-			if !metadata.HasNext {
+			if metadata.NextCursor == nil || *metadata.NextCursor == "" {
 				break
 			}
-			page++ // Increment page for the next request
+			if metadata.NextCursor != nil {
+				request.Cursor = *metadata.NextCursor
+			}
 		}
 	}
 

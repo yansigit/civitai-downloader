@@ -21,11 +21,12 @@ type Model struct {
 
 // Metadata represents pagination metadata from the Civitai API
 type Metadata struct {
-	Total   int  `json:"total"`
-	Limit   int  `json:"limit"`
-	Offset  int  `json:"offset"`
-	Page    int  `json:"page"`
-	HasNext bool `json:"hasNext"`
+	Total      int     `json:"total"`
+	Limit      int     `json:"limit"`
+	Offset     int     `json:"offset"`
+	Page       int     `json:"page"`
+	NextCursor *string `json:"nextCursor"`
+	NextPage   *string `json:"nextPage"`
 }
 
 type CivitModelsRequest struct {

@@ -40,8 +40,9 @@ func main() {
 			types = strings.Split(os.Args[i+1], ",")
 		}
 	}
-	if query == "--query" && len(os.Args) > 2 {
-		query = os.Args[2]
+
+	if query == "-" {
+		query = ""
 	}
 
 	// Parse baseModels argument if provided
