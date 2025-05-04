@@ -49,6 +49,8 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 	case "pomf":
 		// Pomf backend itself doesn't need the DB handle during initialization
 		backend = &storage.PomfStorageBackend{}
+	case "fileditch": // Add fileditch case
+		backend = &storage.FileditchStorageBackend{}
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", cfg.Storage.Type)
 	}
@@ -65,7 +67,7 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 // Run executes the archiving process
 func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun bool) error {
 	page := 1
-	limit := 10 // Adjust limit as needed
+	limit := 20 // Adjust limit as needed
 	token := a.Config.Civitai.Token
 	baseStoragePath := a.Config.Storage.Path // Get base path from config (used by local storage)
 
@@ -79,6 +81,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					Limit:  limit,
 					Query:  query,
 					Nsfw:   "true",
+					Sort:   "Most Downloaded",
 					Types:  []string{modelType},
 					Cursor: cursor,
 				}
@@ -88,6 +91,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					Page:  page,
 					Query: query,
 					Nsfw:  "true",
+					Sort:  "Most Downloaded",
 					Types: []string{modelType},
 				}
 			}
@@ -210,13 +214,13 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					baseFileName := strings.TrimSuffix(downloader.SanitizeFilename(file.Name), filepath.Ext(file.Name))
 					relativePath := path.Join(model.Type, model.Name, version.Name) // Used by local storage
 
-					// --- Pomf Storage Specific Logic ---
-					if a.Config.Storage.Type == "pomf" {
+					// --- Pomf & Fileditch Storage Specific Logic ---
+					if a.Config.Storage.Type == "pomf" || a.Config.Storage.Type == "fileditch" {
 						// 2a. Log main model file association
 						modelAssocInfo := storage.AssociatedFileInfo{
 							ArchivedModelVersionID: version.ID,
 							FileCategory:           "model",
-							FileIdentifier:         mainFileIDOrPath, // This is the Pomf URL for the main file
+							FileIdentifier:         mainFileIDOrPath, // This is the Pomf/Fileditch URL for the main file
 							OriginalFilename:       file.Name,
 						}
 						assocErr := storage.LogAssociatedFile(a.DB, modelAssocInfo)
@@ -228,12 +232,12 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 						if metadataContent != nil {
 							metadataFileName := fmt.Sprintf("%s.civitai.info", baseFileName)
 							metadataReader := bytes.NewReader(metadataContent)
-							// Pomf SaveFile ignores baseStoragePath and relativePath
+							// Pomf/Fileditch SaveFile ignores baseStoragePath and relativePath
 							metadataURL, err := a.StorageBackend.SaveFile(metadataReader, "", "", metadataFileName)
 							if err != nil {
-								log.Printf("Warning: failed to save metadata file '%s' to Pomf: %v", metadataFileName, err)
+								log.Printf("Warning: failed to save metadata file '%s' to %s: %v", metadataFileName, a.Config.Storage.Type, err)
 							} else {
-								log.Printf("Successfully saved metadata to Pomf: %s (URL: %s)", metadataFileName, metadataURL)
+								log.Printf("Successfully saved metadata to %s: %s (URL: %s)", a.Config.Storage.Type, metadataFileName, metadataURL)
 								metadataAssocInfo := storage.AssociatedFileInfo{
 									ArchivedModelVersionID: version.ID,
 									FileCategory:           "metadata",
@@ -277,12 +281,12 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 								}
 
 								previewReader := bytes.NewReader(previewBytes)
-								// Pomf SaveFile ignores baseStoragePath and relativePath
+								// Pomf/Fileditch SaveFile ignores baseStoragePath and relativePath
 								previewURL, err := a.StorageBackend.SaveFile(previewReader, "", "", originalPreviewFilename) // Use original filename for upload
 								if err != nil {
-									log.Printf("Warning: failed to save preview file '%s' to Pomf: %v", originalPreviewFilename, err)
+									log.Printf("Warning: failed to save preview file '%s' to %s: %v", originalPreviewFilename, a.Config.Storage.Type, err)
 								} else {
-									log.Printf("Successfully saved preview %d to Pomf: %s (URL: %s)", i, originalPreviewFilename, previewURL)
+									log.Printf("Successfully saved preview %d to %s: %s (URL: %s)", i, a.Config.Storage.Type, originalPreviewFilename, previewURL)
 									previewAssocInfo := storage.AssociatedFileInfo{
 										ArchivedModelVersionID: version.ID,
 										FileCategory:           "preview",
@@ -298,7 +302,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 								}
 							}
 						}
-					} // --- End Pomf Logic ---
+					} // --- End Pomf/Fileditch Logic ---
 
 					// --- Local Storage Specific Logic ---
 					if a.Config.Storage.Type == "local" {

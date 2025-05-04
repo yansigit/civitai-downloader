@@ -203,6 +203,7 @@ func (rsb *RemoteStorageBackend) findFolderIdByName(parentId, name string) (stri
 	structureMatched := false // Renamed for clarity
 
 	// Try decoding nested object structure first: {"data": {"files": [...]}}
+
 	var nestedObjectResp FindResponseNestedObject
 	if errNestedObj := json.Unmarshal(bodyBytes, &nestedObjectResp); errNestedObj == nil {
 		// Check if Data and Files are not nil before accessing
@@ -750,4 +751,128 @@ func (psb *PomfStorageBackend) SaveFile(body io.Reader, baseStoragePath, relativ
 	}
 
 	return pomfResponse.Files[0].URL, nil
+}
+
+// FileditchStorageBackend implements file storage using fileditch.com
+type FileditchStorageBackend struct{}
+
+// FileditchFile represents a single file entry in the Fileditch API response (assuming same structure as Pomf)
+type FileditchFile struct {
+	Hash string `json:"hash"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size"`
+}
+
+// FileditchResponse represents the overall JSON structure from the Fileditch API (assuming same structure as Pomf)
+type FileditchResponse struct {
+	Success bool            `json:"success"`
+	Files   []FileditchFile `json:"files"`
+}
+
+// EnsureDirectory is a no-op for FileditchStorageBackend
+func (fsb *FileditchStorageBackend) EnsureDirectory(path string) error {
+	return nil
+}
+
+// UploadFile uploads a file to fileditch.com using its file path (placeholder)
+func (fsb *FileditchStorageBackend) UploadFile(filePath, remotePath, locationId, note string) error {
+	// Implementation can be added later if needed, similar to Pomf's if required
+	return nil
+}
+
+// SaveFile uploads a file to fileditch.com using an io.Reader
+func (fsb *FileditchStorageBackend) SaveFile(body io.Reader, baseStoragePath, relativePath, fileName string) (string, error) {
+	// Note: baseStoragePath and relativePath are ignored as Fileditch doesn't use filesystem paths
+	// Create a temporary file
+	tempFile, err := os.CreateTemp("", "fileditch-upload-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	// Copy data to the temporary file
+	if _, err := io.Copy(tempFile, body); err != nil {
+		return "", fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+
+	// Prepare multipart form data
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	formFile, err := writer.CreateFormFile("files[]", fileName) // Assuming Fileditch uses the same field name
+
+	if err != nil {
+		return "", fmt.Errorf("failed to create form file: %w", err)
+	}
+
+	// Seek back to the start of the temp file to read its content
+	if _, err := tempFile.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("failed to seek temporary file: %w", err)
+	}
+
+	// Copy the temp file content into the multipart form field
+	if _, err := io.Copy(formFile, tempFile); err != nil {
+		return "", fmt.Errorf("failed to copy file content to form: %w", err)
+	}
+
+	// Close the multipart writer to finalize the request body
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	// --- Progress Bar Setup ---
+	bodySize := int64(requestBody.Len())
+
+	uploadBar := progressbar.NewOptions(
+		int(bodySize),
+		progressbar.OptionSetDescription(fmt.Sprintf("[Uploading %s] ", fileName)),
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[cyan]=[reset]", // Different color for Fileditch?
+			SaucerHead:    "[cyan]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "|",
+			BarEnd:        "|",
+		}),
+	)
+
+	progressReader := progressbar.NewReader(&requestBody, uploadBar)
+	// --- End Progress Bar Setup ---
+
+	// Create HTTP request with the progressReader as the body
+	req, err := http.NewRequest("POST", "https://fileditch.com/upload.php", &progressReader) // Changed URL
+	if err != nil {
+		fmt.Println()
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.ContentLength = bodySize
+
+	// Execute HTTP request
+	resp, err := http.DefaultClient.Do(req)
+	fmt.Println()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse JSON response (assuming same structure as Pomf)
+	var fileditchResponse FileditchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&fileditchResponse); err != nil {
+		return "", fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	if !fileditchResponse.Success || len(fileditchResponse.Files) == 0 {
+		return "", fmt.Errorf("upload failed or no files returned in response")
+	}
+
+	return fileditchResponse.Files[0].URL, nil
 }
