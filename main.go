@@ -19,8 +19,16 @@ func main() {
 	}
 
 	// Initialize archiver
+	dryrun := false
+	for _, arg := range os.Args {
+		if arg == "--dryrun" {
+			dryrun = true
+			break
+		}
+	}
+
 	if len(os.Args) < 2 {
-		log.Fatalf("Usage: %s <query> [--baseModels <model1,model2,...>] [--types <type1,type2,...>]", os.Args[0])
+		log.Fatalf("Usage: %s <query> [--baseModels <model1,model2,...>] [--types <type1,type2,...>] [--dryrun]", os.Args[0])
 	}
 	// Parse query argument, ensuring it excludes any "--query" prefix
 	query := os.Args[1]
@@ -50,7 +58,7 @@ func main() {
 	}
 
 	// Run archiver with baseModels
-	if err := arch.Run(query, types, baseModels); err != nil {
+	if err := arch.Run(query, types, baseModels, dryrun); err != nil {
 		log.Fatalf("Archiving process failed: %v", err)
 	}
 

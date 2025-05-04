@@ -11,7 +11,7 @@ import (
 
 // StorageBackend defines an interface for saving files, metadata, and descriptions
 type StorageBackend interface {
-	SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config) error
+	SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config, dryrun bool) error
 	SaveMetadata(metadata []byte, destinationPath, modelName string) error
 	SaveDescription(description string, destinationPath, modelName string) error
 	EnsureDirectory(path string) error
@@ -31,11 +31,11 @@ func (lsb *LocalStorageBackend) EnsureDirectory(path string) error {
 }
 
 // SaveFile saves a file from a source URL to the local filesystem
-func (lsb *LocalStorageBackend) SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config) error {
+func (lsb *LocalStorageBackend) SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config, dryrun bool) error {
 	// Construct the full file path
 	// Use the downloader.DownloadAll function to download the file
 	file := version.Files[0]
-	err := downloader.DownloadAll(file, destinationPath, model, version, &config)
+	err := downloader.DownloadAll(file, destinationPath, model, version, &config, dryrun)
 	if err != nil {
 		return fmt.Errorf("failed to download file from %s: %w", sourceURL, err)
 	}

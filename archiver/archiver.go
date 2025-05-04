@@ -35,7 +35,7 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 }
 
 // Run executes the archiving process
-func (a *Archiver) Run(query string, types []string, baseModels []string) error {
+func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun bool) error {
 	page := 1
 	limit := 10
 	token := a.Config.Civitai.Token
@@ -56,18 +56,23 @@ func (a *Archiver) Run(query string, types []string, baseModels []string) error 
 				return fmt.Errorf("failed to fetch models for type %s: %w", modelType, err)
 			}
 
-			filteredModels := []downloader.Model{}
-			for _, model := range models {
-				for _, version := range model.ModelVersions {
-					if sliceContains(baseModels, version.BaseModel) {
-						filteredModels = append(filteredModels, model)
-						break // Avoid adding the same model multiple times
+			var filteredModels []downloader.Model
+			if len(baseModels) == 0 {
+				filteredModels = models
+				log.Printf("No BaseModels filtering applied, processing all models: %d models", len(filteredModels))
+			} else {
+				for _, model := range models {
+					for _, version := range model.ModelVersions {
+						if sliceContains(baseModels, version.BaseModel) {
+							filteredModels = append(filteredModels, model)
+							break // Avoid adding the same model multiple times
+						}
 					}
 				}
-			}
-			log.Printf("Filtered models based on BaseModels: %d models", len(filteredModels))
-			for _, model := range filteredModels {
-				log.Printf("Model Name: %s", model.Name)
+				log.Printf("Filtered models based on BaseModels: %d models", len(filteredModels))
+				for _, model := range filteredModels {
+					log.Printf("Model Name: %s", model.Name)
+				}
 			}
 
 			for _, model := range filteredModels {
@@ -91,7 +96,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string) error 
 					// Save main file
 					if len(version.Files) > 0 {
 						file := version.Files[0]
-						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config); err != nil {
+						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config, dryrun); err != nil {
 							log.Printf("Failed to save file for model %s: %v", model.Name, err)
 							continue
 						}

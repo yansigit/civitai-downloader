@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -80,13 +81,18 @@ const (
 )
 
 // DownloadFile downloads a single file from the given URL to the specified path and returns the saved filename
-func DownloadFile(outputPath, url, modelVersionId, token string) (string, error) {
+func DownloadFile(outputPath, url, modelVersionId, token string, dryrun bool) (string, error) {
+	if dryrun {
+		fmt.Printf("Dryrun: File would be downloaded to: %s\n", outputPath)
+		return outputPath, nil
+	}
 	outputDir := filepath.Dir(outputPath)
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			return "", fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
+	log.Printf("Directory created or already exists: %s", outputDir)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -145,7 +151,7 @@ func DownloadFile(outputPath, url, modelVersionId, token string) (string, error)
 }
 
 // DownloadAll downloads all available files for a given model ID
-func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config) error {
+func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, dryrun bool) error {
 	modelID := fmt.Sprintf("%d", modelVersion.ID)
 	// modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
 	// resp, err := http.Get(modelURL)
@@ -169,11 +175,12 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create model type directory: %w", err)
 	}
+	log.Printf("Directory created or already exists: %s", dir)
 
 	// modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
 	modelVersion.DownloadURL = modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
 
-	outputPath, err := DownloadFile(filepath.Join(dir, filepath.Base(baseModelPath)), modelVersion.DownloadURL, modelID, config.Civitai.Token)
+	outputPath, err := DownloadFile(filepath.Join(dir, model.Name, modelVersion.Name), modelVersion.DownloadURL, modelID, config.Civitai.Token, dryrun)
 	if err != nil {
 		fmt.Println("Download failed from URL:", modelVersion.DownloadURL)
 		return fmt.Errorf("failed to download model file: %w", err)
@@ -181,27 +188,29 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 
 	baseName := strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath))
 
-	for _, image := range modelVersion.Images {
+	for i, image := range modelVersion.Images {
 		if image.Type == "image" {
-			imgPath := fmt.Sprintf("%s.preview.png", filepath.Join(filepath.Dir(outputPath), baseName))
-			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token); err != nil {
+			imgPath := fmt.Sprintf("%s.preview.png", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
+			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
 				return fmt.Errorf("failed to download image: %w", err)
 			}
 		} else if image.Type == "video" {
-			imgPath := fmt.Sprintf("%s.preview.mp4", filepath.Join(filepath.Dir(outputPath), baseName))
-			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token); err != nil {
+			imgPath := fmt.Sprintf("%s.preview.mp4", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
+			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
 				return fmt.Errorf("failed to download image: %w", err)
 			}
 		}
 	}
 
-	metadataPath := fmt.Sprintf("%s.civitai.info", filepath.Join(filepath.Dir(outputPath), baseName))
-	metadata, err := json.MarshalIndent(modelVersion, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-	if err := os.WriteFile(metadataPath, metadata, 0644); err != nil {
-		return fmt.Errorf("failed to save metadata: %w", err)
+	metadataPath := fmt.Sprintf("%s.civitai.info", outputPath)
+	if !dryrun {
+		metadata, err := json.MarshalIndent(modelVersion, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		if err := os.WriteFile(metadataPath, metadata, 0644); err != nil {
+			return fmt.Errorf("failed to save metadata: %w", err)
+		}
 	}
 
 	// Handle optional description pointer
