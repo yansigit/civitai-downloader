@@ -1,9 +1,11 @@
 package downloader
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/yansigit/civitai-downloader/config"
+	"github.com/yansigit/civitai-downloader/storage"
 )
 
 // ModelVersion represents the model version information from the Civitai API
@@ -149,7 +152,16 @@ func DownloadFile(outputPath, url, modelVersionId, token string, dryrun bool) (s
 }
 
 // DownloadAll downloads all available files for a given model ID
-func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, dryrun bool) (string, error) {
+func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, db *sql.DB, dryrun bool) (string, error) {
+	// Check if the model version is already downloaded
+	exists, err := storage.CheckModelVersionExists(db, modelVersion.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to check database for model version: %w", err)
+	}
+	if exists {
+		log.Printf("Model version %d (%s) is already downloaded. Skipping.", modelVersion.ID, modelVersion.Name)
+		return "", nil
+	}
 	modelID := fmt.Sprintf("%d", modelVersion.ID)
 	// modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
 	// resp, err := http.Get(modelURL)

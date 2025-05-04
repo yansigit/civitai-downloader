@@ -214,7 +214,7 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 	// Print a summary of the fetched models
 	for _, model := range result.Items {
 		for _, version := range model.ModelVersions {
-			log.Printf("Model Name: %s, Type: %s, BaseModel: %s", model.Name, model.Type, version.BaseModel)
+			log.Printf("Model Name: %s, Version Name: %s, Type: %s, BaseModel: %s", model.Name, version.Name, model.Type, version.BaseModel)
 		}
 	}
 

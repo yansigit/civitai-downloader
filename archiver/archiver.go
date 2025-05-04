@@ -105,9 +105,9 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					// Save main file
 					if len(version.Files) > 0 {
 						file := version.Files[0]
-						filePath, err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config, dryrun)
+						filePath, err := downloader.DownloadAll(file, destinationPath, model, version, a.Config, a.DB, dryrun)
 						if err != nil {
-							log.Printf("Failed to save file for model %s: %v", model.Name, err)
+							log.Printf("Failed to download file for model %s: %v", model.Name, err)
 							continue
 						}
 
@@ -139,11 +139,11 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					// }
 
 					// Save description
-					if version.Description != nil && *version.Description != "" {
-						if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
-							log.Printf("Failed to save description for model %s: %v", model.Name, err)
-						}
-					}
+					// if version.Description != nil && *version.Description != "" {
+					// 	if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
+					// 		log.Printf("Failed to save description for model %s: %v", model.Name, err)
+					// 	}
+					// }
 				}
 			}
 

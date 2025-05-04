@@ -8,7 +8,17 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
-// ArchivedModelInfo holds details about a downloaded model file.
+// CheckModelVersionExists checks if a specific model version exists in the database.
+func CheckModelVersionExists(db *sql.DB, versionID int64) (bool, error) {
+	query := `SELECT COUNT(*) FROM archived_models WHERE version_id = ?`
+	var count int
+	err := db.QueryRow(query, versionID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to query model version: %w", err)
+	}
+	return count > 0, nil
+}
+
 type ArchivedModelInfo struct {
 	ModelID      int64     `json:"modelId"`
 	ModelName    string    `json:"modelName"`
@@ -29,7 +39,7 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	}
 
 	// Create table if not exists
-	createTableSQL := `CREATE TABLE IF NOT EXISTS archived_models (
+	createArchivedModelsTableSQL := `CREATE TABLE IF NOT EXISTS archived_models (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		model_id INTEGER,
 		model_name TEXT,
@@ -42,7 +52,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		downloaded_at DATETIME
 	);`
 
-	_, err = db.Exec(createTableSQL)
+	_, err = db.Exec(createArchivedModelsTableSQL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create archived_models table: %w", err)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
