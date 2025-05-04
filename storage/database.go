@@ -40,17 +40,31 @@ func InitDB(dbPath string) (*sql.DB, error) {
 
 	// Create table if not exists
 	createArchivedModelsTableSQL := `CREATE TABLE IF NOT EXISTS archived_models (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		model_id INTEGER,
-		model_name TEXT,
-		version_id INTEGER,
-		version_name TEXT,
-		base_model TEXT,
-		file_type TEXT,
-		file_format TEXT,
-		file_path TEXT UNIQUE, -- Ensure uniqueness based on path
-		downloaded_at DATETIME
-	);`
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+model_id INTEGER,
+model_name TEXT,
+version_id INTEGER UNIQUE, -- Added UNIQUE constraint
+version_name TEXT,
+base_model TEXT,
+file_type TEXT,
+file_format TEXT,
+file_path TEXT UNIQUE, -- Path/URL of the *main* model file
+downloaded_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS model_associated_files (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+archived_model_version_id INTEGER, -- References archived_models.version_id
+file_category TEXT NOT NULL,       -- e.g., 'model', 'metadata', 'preview'
+file_identifier TEXT NOT NULL,     -- URL (Pomf) or Path (Local/Other)
+original_filename TEXT,            -- Optional: Original name from Civitai
+mime_type TEXT,                    -- Optional: e.g., 'application/json', 'image/png'
+order_index INTEGER DEFAULT 0,     -- Optional: For ordering previews
+FOREIGN KEY (archived_model_version_id) REFERENCES archived_models (version_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_associated_files_version_id
+ON model_associated_files (archived_model_version_id);`
 
 	_, err = db.Exec(createArchivedModelsTableSQL)
 	if err != nil {
@@ -58,6 +72,32 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+type AssociatedFileInfo struct {
+	ArchivedModelVersionID int64
+	FileCategory           string
+	FileIdentifier         string
+	OriginalFilename       string // Optional
+	MimeType               string // Optional
+	OrderIndex             int    // Optional
+}
+
+// LogAssociatedFile inserts a new record into the model_associated_files table.
+func LogAssociatedFile(db *sql.DB, info AssociatedFileInfo) error {
+	insertSQL := `INSERT INTO model_associated_files (
+        archived_model_version_id, file_category, file_identifier, 
+        original_filename, mime_type, order_index
+    ) VALUES (?, ?, ?, ?, ?, ?)`
+
+	_, err := db.Exec(insertSQL,
+		info.ArchivedModelVersionID, info.FileCategory, info.FileIdentifier,
+		info.OriginalFilename, info.MimeType, info.OrderIndex,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert associated file log: %w", err)
+	}
+	return nil
 }
 
 // LogModel inserts a new record into the archived_models table.

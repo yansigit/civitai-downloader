@@ -19,6 +19,8 @@ type StorageTarget struct {
 	DatabasePath  string            `yaml:"database_path"`            // Path to SQLite database
 	CloudSettings map[string]string `yaml:"cloud_settings,omitempty"` // Optional cloud settings
 	AuthToken     string            `yaml:"auth_token,omitempty"`     // Authentication token for remote storage
+	SaveMetadata  bool              `yaml:"save_metadata,omitempty"`  // Whether to save metadata files
+	SavePreviews  bool              `yaml:"save_previews,omitempty"`  // Whether to save preview images
 }
 
 type Config struct {

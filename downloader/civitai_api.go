@@ -29,6 +29,26 @@ type Metadata struct {
 	NextPage   *string `json:"nextPage"`
 }
 
+// Creator represents the model creator information
+type Creator struct {
+	Username string `json:"username"`
+	Image    string `json:"image"` // Optional: might exist
+}
+
+// ModelDetail represents the detailed information for a single model from the Civitai API
+// Used by the /api/v1/models/{modelID} endpoint
+type ModelDetail struct {
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Description   *string        `json:"description"` // Pointer for optional field
+	Type          string         `json:"type"`
+	Nsfw          bool           `json:"nsfw"`
+	Tags          []string       `json:"tags"`
+	Creator       Creator        `json:"creator"`
+	ModelVersions []ModelVersion `json:"modelVersions"`
+	// Add other relevant fields if needed based on API response
+}
+
 type CivitModelsRequest struct {
 	Limit                  int      `json:"limit,omitempty"`
 	Page                   int      `json:"page,omitempty"`
@@ -176,16 +196,16 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 	// fileName := "response.json"
 	// err = os.WriteFile(fileName, body, 0644)
 	// if err != nil {
-	// 	log.Printf("Warning: failed to save response to file '%s': %v", fileName, err)
+	// log.Printf("Warning: failed to save response to file '%s': %v", fileName, err)
 	// } else {
-	// 	log.Printf("Response saved to file: %s", fileName)
+	// log.Printf("Response saved to file: %s", fileName)
 	// }
 
 	// Log the API response body for debugging (use the body we already read)
 	// Limit logging length if necessary to avoid flooding logs
 	// logBody := string(body)
 	// if len(logBody) > 1000 { // Log first 1000 chars
-	// 	logBody = logBody[:1000] + "..."
+	// logBody = logBody[:1000] + "..."
 	// }
 	// log.Printf("API Response Body (preview): %s", logBody)
 

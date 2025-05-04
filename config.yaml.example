@@ -3,15 +3,26 @@ civitai:
 
 # Where to save the downloaded models
 storage:
-  # Type can be "local" or a cloud provider name (e.g., "google_drive", "pixeldrain" - future)
+  # Storage backend configuration
+  
+  # For local storage (default):
   type: "local"
-  # Path for local storage, or root identifier for cloud storage
   path: "/path/to/your/model/archive"
-  database_path: "/path/to/your/database.sqlite" # Path to SQLite database for logging
-  # Cloud-specific settings (future)
-  # cloud_settings:
-  #   credentials_file: "/path/to/credentials.json"
-  #   folder_id: "YOUR_GOOGLE_DRIVE_FOLDER_ID"
+  database_path: "/path/to/your/database.sqlite"
+  save_metadata: false # Whether to save metadata files (default: false)
+  save_previews: false # Whether to save preview images (default: false)
+
+  # For fuckingfast storage:
+  # type: "fuckingfast"
+  # path: "your-folder-id"  # Root folder ID
+  # auth_token: "your-auth-token"
+  # database_path: "/path/to/your/database.sqlite"
+
+  # For Pomf storage (pomf.lain.la):
+  # type: "pomf"
+  # database_path: "/path/to/your/database.sqlite"
+  # Note: 'path' is ignored for pomf since it's a URL-based service
+  # Note: 'auth_token' is not used by pomf
 
 # (Keep existing comfyui section if needed for other purposes, or remove if solely an archiver)
 comfyui:
