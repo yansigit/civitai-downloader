@@ -1,19 +1,21 @@
 package downloader
 
 import (
+	"bytes" // Added
 	"database/sql"
-	"encoding/json"
+	"encoding/json" // Added
 	"fmt"
 	"io"
-	"log"
+	"log" // Added
 	"net/http"
-	"os"
+	"path"
 	"path/filepath"
+	"regexp" // Added
 	"strings"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/yansigit/civitai-downloader/config"
-	"github.com/yansigit/civitai-downloader/storage"
+	"github.com/yansigit/civitai-downloader/storage" // Added
 )
 
 // ModelVersion represents the model version information from the Civitai API
@@ -74,86 +76,38 @@ type Creator struct {
 type FileMetadata struct {
 	Format string `json:"format"` // e.g., "SafeTensor", "PickleTensor"
 	Size   string `json:"size"`   // e.g., "full", "pruned"
-	FP     string `json:"fp"`     // e.g., "fp16", "fp32"
+	FP     string `json:"fp"`
 }
 
 const (
 	APIModelVersions = "https://civitai.com/api/v1/model-versions/"
-	APIModels        = "https://civitai.com/api/v1/models/" // Added base models endpoint
+	APIModels        = "https://civitai.com/api/v1/models/"
 )
 
-// DownloadFile downloads a single file from the given URL to the specified path and returns the saved filename
-func DownloadFile(outputPath, url, modelVersionId, token string, dryrun bool) (string, error) {
-	if dryrun {
-		fmt.Printf("Dryrun: File would be downloaded to: %s\n", outputPath)
-		return outputPath, nil
-	}
-	outputDir := filepath.Dir(outputPath)
-	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create directory: %w", err)
-		}
-	}
+// Helper function to sanitize filenames
+var illegalChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+var trailingChars = regexp.MustCompile(`[ .]+$`)
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+func SanitizeFilename(name string) string {
+	// Replace illegal characters with underscore
+	sanitized := illegalChars.ReplaceAllString(name, "_")
+	// Remove trailing dots and spaces
+	sanitized = trailingChars.ReplaceAllString(sanitized, "")
+	// Limit length if necessary (optional)
+	// const maxLength = 200
+	// if len(sanitized) > maxLength {
+	//     sanitized = sanitized[:maxLength]
+	// }
+	// Ensure filename is not empty or just "." or ".."
+	if sanitized == "" || sanitized == "." || sanitized == ".." {
+		return "downloaded_file" // Provide a default name
 	}
-	if strings.Contains(url, "civitai.com") {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to download file: %w, response body: %s", err, string(body))
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("unexpected status code: %d, response body: %s", resp.StatusCode, string(body))
-	}
-
-	header := resp.Header.Get("content-disposition")
-	if header != "" {
-		parts := strings.Split(header, "filename=")
-		if len(parts) > 1 {
-			outputPath = filepath.Join(filepath.Dir(outputPath), strings.Trim(parts[1], "\""))
-		}
-	}
-
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	bar := progressbar.NewOptions(
-		int(resp.ContentLength),
-		progressbar.OptionSetWidth(15),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionSetDescription("[Downloading] "),
-		progressbar.OptionSetTheme(
-			progressbar.Theme{
-				Saucer:        "[green]=[reset]",
-				SaucerHead:    "[green]>[reset]",
-				SaucerPadding: " ",
-				BarStart:      "|",
-				BarEnd:        "|",
-			}),
-	)
-
-	_, err = io.Copy(io.MultiWriter(file, bar), resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to write to file: %w", err)
-	}
-
-	return outputPath, nil
+	return sanitized
 }
 
-// DownloadAll downloads all available files for a given model ID
-func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, db *sql.DB, dryrun bool) (string, error) {
-	// Check if the model version is already downloaded
+// DownloadAll downloads all available files for a given model ID using the provided storage backend
+// DownloadAll downloads all available files for a given model ID using the provided storage backend
+func DownloadAll(file File, baseStoragePath string, model Model, modelVersion ModelVersion, config *config.Config, db *sql.DB, storageBackend storage.StorageBackend, dryrun bool) (string, error) {
 	exists, err := storage.CheckModelVersionExists(db, modelVersion.ID)
 	if err != nil {
 		return "", fmt.Errorf("failed to check database for model version: %w", err)
@@ -162,84 +116,163 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 		log.Printf("Model version %d (%s) is already downloaded. Skipping.", modelVersion.ID, modelVersion.Name)
 		return "", nil
 	}
-	modelID := fmt.Sprintf("%d", modelVersion.ID)
-	// modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
-	// resp, err := http.Get(modelURL)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to fetch model version: %w", err)
-	// }
-	// defer resp.Body.Close()
 
-	// if resp.StatusCode != http.StatusOK {
-	// 	return fmt.Errorf("failed to fetch model version. Status code: %d", resp.StatusCode)
-	// }
-
-	// var modelVersion ModelVersion
-	// err = json.NewDecoder(resp.Body).Decode(&modelVersion)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to decode model version response: %w", err)
-	// }
-
-	// Create a subdirectory based on modelType
-	var dir string
-	if !strings.Contains(baseModelPath, model.Type) {
-		dir = filepath.Join(baseModelPath, model.Type)
-	} else {
-		dir = baseModelPath
-	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create model type directory: %w", err)
+	if dryrun {
+		log.Printf("Dryrun: Would download files for model %s version %s", model.Name, modelVersion.Name)
+		return SanitizeFilename(file.Name), nil
 	}
 
-	// modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
-	modelVersion.DownloadURL = modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
+	// Removed unused modelID variable
 
-	outputPath, err := DownloadFile(filepath.Join(dir, model.Name, modelVersion.Name), modelVersion.DownloadURL, modelID, config.Civitai.Token, dryrun)
+	downloadURL := modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
+	log.Printf("Attempting download from: %s", downloadURL)
+
+	// Perform HTTP GET request
+	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
-		fmt.Println("Download failed from URL:", modelVersion.DownloadURL)
-		return "", fmt.Errorf("failed to download model file: %w", err)
+		return "", fmt.Errorf("failed to create request for %s: %w", downloadURL, err)
+	}
+	if strings.Contains(downloadURL, "civitai.com") {
+		req.Header.Set("Authorization", "Bearer "+config.Civitai.Token)
 	}
 
-	baseName := strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download from %s: %w", downloadURL, err)
+	}
+	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("Error response body from %s: %s", downloadURL, string(bodyBytes))
+		return "", fmt.Errorf("unexpected status code %d from %s", resp.StatusCode, downloadURL)
+	}
+
+	// Determine filename (handle content-disposition)
+	finalFileName := file.Name // Default filename from API response
+	header := resp.Header.Get("content-disposition")
+	if header != "" {
+		parts := strings.Split(header, "filename=")
+		if len(parts) > 1 {
+			// More robust parsing might be needed for complex headers
+			potentialName := strings.Trim(parts[1], "\" ")
+			if potentialName != "" {
+				finalFileName = potentialName
+			}
+		}
+	}
+	finalFileName = SanitizeFilename(finalFileName) // Sanitize the final chosen name
+
+	// Determine destination directory
+	// This path is primarily for LocalStorageBackend. RemoteStorageBackend might ignore it or use it differently internally.
+	// Construct raw relative path using forward slashes
+	relativePath := path.Join(model.Type, model.Name, modelVersion.Name)
+
+	// Use storage backend to save the file with progress bar
+	bar := progressbar.NewOptions(
+		int(resp.ContentLength),
+		progressbar.OptionSetDescription(fmt.Sprintf("[Downloading %s] ", finalFileName)),
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "|",
+			BarEnd:        "|",
+		}),
+	)
+	progressReader := progressbar.NewReader(resp.Body, bar)
+
+	// Save using the backend - pass baseStoragePath, relativePath, finalFileName
+	// CORRECTED CALL
+	savedFilePathOrID, err := storageBackend.SaveFile(&progressReader, baseStoragePath, relativePath, finalFileName)
+	if err != nil {
+		fmt.Println()
+		log.Printf("Failed to save file %s using storage backend: %v", finalFileName, err)
+		return "", fmt.Errorf("failed to save model file via backend: %w", err)
+	}
+	fmt.Println()
+
+	log.Printf("Successfully saved main file: %s (Identifier: %s)", finalFileName, savedFilePathOrID)
+
+	// --- Save Images ---
+	baseName := strings.TrimSuffix(finalFileName, filepath.Ext(finalFileName)) // Use sanitized name
 	for i, image := range modelVersion.Images {
+		var imgExt string
 		if image.Type == "image" {
-			imgPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.%d.preview.png", baseName, i))
-			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
-				return "", fmt.Errorf("failed to download image: %w", err)
+			// Try to guess extension from URL, default to .png
+			imgExt = ".png"
+			if urlExt := filepath.Ext(image.URL); urlExt != "" && len(urlExt) <= 5 { // Basic check for valid extension
+				imgExt = urlExt
 			}
 		} else if image.Type == "video" {
-			imgPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.%d.preview.mp4", baseName, i))
-			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
-				return "", fmt.Errorf("failed to download image: %w", err)
-			}
+			imgExt = ".mp4" // Assume mp4 for video previews
+		} else {
+			log.Printf("Skipping unknown image type: %s for URL: %s", image.Type, image.URL)
+			continue // Skip unknown types
 		}
-	}
 
-	metadataPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.civitai.info", baseName))
-	if !dryrun {
-		metadata, err := json.MarshalIndent(modelVersion, "", "  ")
+		imgFileName := SanitizeFilename(fmt.Sprintf("%s.%d.preview%s", baseName, i, imgExt))
+		log.Printf("Attempting download for image: %s", image.URL)
+
+		// Use http.Get for simplicity, add auth header if required for image URLs
+		imgResp, err := http.Get(image.URL)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal metadata: %w", err)
+			log.Printf("Warning: failed to download image %s: %v", image.URL, err)
+			continue
 		}
-		if err := os.WriteFile(metadataPath, metadata, 0644); err != nil {
-			return "", fmt.Errorf("failed to save metadata: %w", err)
+		defer imgResp.Body.Close() // Close body inside the loop
+
+		if imgResp.StatusCode != http.StatusOK {
+			log.Printf("Warning: failed to download image %s, status: %s", image.URL, imgResp.Status)
+			continue
+		}
+
+		// Save image using the storage backend - pass same paths
+		// CORRECTED CALL
+		_, err = storageBackend.SaveFile(imgResp.Body, baseStoragePath, relativePath, imgFileName)
+		if err != nil {
+			log.Printf("Warning: failed to save image %s: %v", imgFileName, err)
+		} else {
+			log.Printf("Successfully saved image: %s", imgFileName)
 		}
 	}
 
-	// Handle optional description pointer
+	// --- Save Metadata ---
+	metadataFileName := fmt.Sprintf("%s.civitai.info", baseName)
+	metadataBytes, err := json.MarshalIndent(modelVersion, "", "  ")
+	if err != nil {
+		log.Printf("Warning: failed to marshal metadata for %s: %v", baseName, err)
+	} else {
+		metadataReader := bytes.NewReader(metadataBytes)
+		// Save metadata using the storage backend - pass same paths
+		// CORRECTED CALL
+		_, err = storageBackend.SaveFile(metadataReader, baseStoragePath, relativePath, metadataFileName)
+		if err != nil {
+			log.Printf("Warning: failed to save metadata file %s: %v", metadataFileName, err)
+		} else {
+			log.Printf("Successfully saved metadata: %s", metadataFileName)
+		}
+	}
+
+	// --- Save Description ---
 	if modelVersion.Description != nil && *modelVersion.Description != "" {
-		descPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.description.txt", baseName))
-		// Dereference the pointer to get the string value
-		if err := os.WriteFile(descPath, []byte(*modelVersion.Description), 0644); err != nil {
-			// Log warning instead of failing the whole download?
-			fmt.Printf("Warning: failed to save description: %v\n", err)
-			// return fmt.Errorf("failed to save description: %w", err)
+		descFileName := fmt.Sprintf("%s.description.txt", baseName)
+		descriptionReader := strings.NewReader(*modelVersion.Description)
+		// Save description using the storage backend - pass same paths
+		// CORRECTED CALL
+		_, err = storageBackend.SaveFile(descriptionReader, baseStoragePath, relativePath, descFileName)
+		if err != nil {
+			log.Printf("Warning: failed to save description file %s: %v", descFileName, err)
+		} else {
+			log.Printf("Successfully saved description: %s", descFileName)
 		}
 	}
 
-	fmt.Printf("Successfully downloaded model files to %s\n", filepath.Dir(outputPath))
-	return outputPath, nil
+	// Return the path/ID of the main file (which is now the full path/key)
+	return savedFilePathOrID, nil
 }
 
 // GetModelID retrieves the model ID from the URL
@@ -261,3 +294,6 @@ func GetModelID(url string) (string, error) {
 	modelID := parts
 	return modelID, nil
 }
+
+// Removed duplicated API structs and function definitions.
+// These should be defined solely in downloader/civitai_api.go

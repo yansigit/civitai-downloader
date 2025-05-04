@@ -8,6 +8,7 @@ import (
 
 	"github.com/yansigit/civitai-downloader/archiver"
 	"github.com/yansigit/civitai-downloader/config"
+	"github.com/yansigit/civitai-downloader/storage"
 )
 
 func main() {
@@ -58,7 +59,15 @@ func main() {
 		log.Fatalf("Error initializing archiver: %v", err)
 	}
 
-	// Run archiver with baseModels
+	// Initialize cache for RemoteStorageBackend if storage type is "fuckingfast"
+	if cfg.Storage.Type == "fuckingfast" {
+		if remoteBackend, ok := arch.StorageBackend.(*storage.RemoteStorageBackend); ok {
+			if err := remoteBackend.InitializeCache(cfg.Storage.Path); err != nil {
+				log.Fatalf("Error initializing remote storage cache: %v", err)
+			}
+		}
+	}
+
 	if err := arch.Run(query, types, baseModels, dryrun); err != nil {
 		log.Fatalf("Archiving process failed: %v", err)
 	}

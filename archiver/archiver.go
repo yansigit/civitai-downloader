@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/yansigit/civitai-downloader/config"
@@ -26,9 +24,14 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 
 	// Initialize the appropriate storage backend
 	if cfg.Storage.Type == "fuckingfast" {
+		// Pass AuthToken, BasePath will be handled by SaveFile using config path
 		backend = &storage.RemoteStorageBackend{AuthToken: cfg.Storage.AuthToken}
 	} else if cfg.Storage.Type == "local" {
 		backend = &storage.LocalStorageBackend{}
+		// Ensure the base local directory exists
+		if err := backend.EnsureDirectory(cfg.Storage.Path); err != nil {
+			return nil, fmt.Errorf("failed to ensure base local storage directory '%s': %w", cfg.Storage.Path, err)
+		}
 	} else {
 		return nil, fmt.Errorf("unsupported storage type: %s", cfg.Storage.Type)
 	}
@@ -49,12 +52,14 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 // Run executes the archiving process
 func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun bool) error {
 	page := 1
-	limit := 10
+	limit := 10 // Adjust limit as needed
 	token := a.Config.Civitai.Token
+	baseStoragePath := a.Config.Storage.Path // Get base path from config
 
 	for _, modelType := range types {
 		page = 1 // Reset page for each model type
 		for {
+			// Use the correct request struct from the downloader (or ideally api) package
 			request := downloader.CivitModelsRequest{
 				Limit: limit,
 				Page:  page,
@@ -63,11 +68,16 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 				Types: []string{modelType}, // Send a single type per request
 			}
 			log.Printf("Requesting models with parameters: %+v", request)
+
+			// Use the correct GetModels function
 			models, metadata, err := downloader.GetModels(request, token)
 			if err != nil {
-				return fmt.Errorf("failed to fetch models for type %s: %w", modelType, err)
+				// Check for specific error indicating end of pagination if API uses that
+				log.Printf("Failed to fetch models page %d for type %s: %v. Stopping pagination for this type.", page, modelType, err)
+				break // Stop paginating for this type on error
 			}
 
+			// --- Filtering logic remains the same ---
 			var filteredModels []downloader.Model
 			if len(baseModels) == 0 {
 				filteredModels = models
@@ -99,52 +109,26 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 
 				// Process each version
 				for _, version := range versions {
-					destinationPath := filepath.Join(a.Config.Storage.Path, model.Type, version.BaseModel)
-					if err := a.StorageBackend.EnsureDirectory(destinationPath); err != nil {
-						log.Printf("Failed to create directory for model %s: %v", model.Name, err)
-						continue
-					}
+					// EnsureDirectory is now handled within LocalStorageBackend.SaveFile
+					// No need to calculate destinationPath or call EnsureDirectory explicitly here.
 
-					// Save main file
+					// Save main file and associated files
 					if len(version.Files) > 0 {
-						file := version.Files[0]
-						filePath, err := downloader.DownloadAll(file, destinationPath, model, version, a.Config, a.DB, dryrun)
+						file := version.Files[0] // Process the first file
+
+						// Updated DownloadAll call: pass baseStoragePath
+						filePathOrID, err := downloader.DownloadAll(file, baseStoragePath, model, version, a.Config, a.DB, a.StorageBackend, dryrun)
 						if err != nil {
-							log.Printf("Failed to download file for model %s: %v", model.Name, err)
+							if err == nil && filePathOrID == "" {
+								// Skipped, already logged
+								continue
+							}
+							log.Printf("Failed to download/save file for model %s version %s: %v", model.Name, version.Name, err)
 							continue
 						}
 
-						// Upload all files in the same folder to remote storage if backend is RemoteStorageBackend
-						if remoteBackend, ok := a.StorageBackend.(*storage.RemoteStorageBackend); ok {
-							files, err := os.ReadDir(destinationPath)
-							if err != nil {
-								log.Printf("Failed to read directory for model %s: %v", model.Name, err)
-								continue
-							}
-
-							for _, f := range files {
-								if !f.IsDir() {
-									filePath := filepath.Join(destinationPath, f.Name())
-									err := remoteBackend.UploadFile(filePath, f.Name(), "", "")
-									if err != nil {
-										log.Printf("Failed to upload file %s for model %s: %v", f.Name(), model.Name, err)
-										continue
-									}
-									log.Printf("Successfully uploaded file %s for model %s to remote storage", f.Name(), model.Name)
-
-									// Remove the file from local storage after successful upload
-									err = os.Remove(filePath)
-									if err != nil {
-										log.Printf("Failed to delete local file %s for model %s: %v", f.Name(), model.Name, err)
-									} else {
-										log.Printf("Successfully deleted local file %s for model %s", f.Name(), model.Name)
-									}
-								}
-							}
-						}
-
-						// Log the archived model in the database
-						if !dryrun {
+						// Log to DB if successful and not dryrun
+						if !dryrun && filePathOrID != "" {
 							archivedInfo := storage.ArchivedModelInfo{
 								ModelID:      model.ID,
 								ModelName:    model.Name,
@@ -153,40 +137,44 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 								BaseModel:    version.BaseModel,
 								FileType:     file.Type,
 								FileFormat:   file.Metadata.Format,
-								FilePath:     filePath,
+								FilePath:     filePathOrID, // Use the full path/key returned
 								DownloadedAt: time.Now(),
 							}
 							if err := storage.LogModel(a.DB, archivedInfo); err != nil {
-								log.Printf("Failed to log model %s in database: %v", model.Name, err)
+								log.Printf("Failed to log model %s version %s in database: %v", model.Name, version.Name, err)
+							} else {
+								// Log the full path/key for clarity
+								log.Printf("Successfully logged model %s version %s to DB (Path: %s)", model.Name, version.Name, filePathOrID)
 							}
 						}
+					} else {
+						log.Printf("Skipping version %s for model %s as it has no files listed.", version.Name, model.Name)
 					}
+				} // End version loop
+			} // End model loop
 
-					// Save metadata
-					// metadata, err := json.Marshal(version)
-					// if err == nil {
-					// 	if err := a.StorageBackend.SaveMetadata(metadata, destinationPath, version.Name); err != nil {
-					// 		log.Printf("Failed to save metadata for model %s: %v", model.Name, err)
-					// 	}
-					// }
-
-					// Save description
-					// if version.Description != nil && *version.Description != "" {
-					// 	if err := a.StorageBackend.SaveDescription(*version.Description, destinationPath, version.Name); err != nil {
-					// 		log.Printf("Failed to save description for model %s: %v", model.Name, err)
-					// 	}
-					// }
-				}
-			}
-
-			if metadata.NextCursor == nil || *metadata.NextCursor == "" {
-				break
-			}
-			if metadata.NextCursor != nil {
+			// Pagination logic
+			// Use NextCursor if available, otherwise check NextPage (though cursor is preferred)
+			if metadata.NextCursor != nil && *metadata.NextCursor != "" {
+				log.Printf("Moving to next page using cursor: %s", *metadata.NextCursor)
 				request.Cursor = *metadata.NextCursor
+				// Reset Page if using Cursor? API dependent, assume cursor handles position.
+				page = 0 // Or remove page parameter entirely if cursor is used
+			} else if metadata.NextPage != nil && *metadata.NextPage != "" {
+				// Fallback to page number if cursor is not present but NextPage is
+				page++
+				log.Printf("Moving to next page number: %d", page)
+				request.Cursor = "" // Ensure cursor is not sent when using page
+			} else {
+				log.Printf("No next page or cursor found for type %s. Finished.", modelType)
+				break // No more pages/cursors
 			}
-		}
-	}
+
+			// Add a small delay to avoid rate limiting?
+			// time.Sleep(500 * time.Millisecond)
+
+		} // End pagination loop
+	} // End type loop
 
 	return nil
 }
