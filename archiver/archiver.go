@@ -58,11 +58,17 @@ func (a *Archiver) Run(query string, types []string, baseModels []string) error 
 
 			filteredModels := []downloader.Model{}
 			for _, model := range models {
-				if sliceContains(baseModels, model.BaseModel) {
-					filteredModels = append(filteredModels, model)
+				for _, version := range model.ModelVersions {
+					if sliceContains(baseModels, version.BaseModel) {
+						filteredModels = append(filteredModels, model)
+						break // Avoid adding the same model multiple times
+					}
 				}
 			}
-			log.Printf("Filtered models based on BaseModels: %+v", filteredModels)
+			log.Printf("Filtered models based on BaseModels: %d models", len(filteredModels))
+			for _, model := range filteredModels {
+				log.Printf("Model Name: %s", model.Name)
+			}
 
 			for _, model := range filteredModels {
 				log.Printf("Processing model: %s (ID: %d)", model.Name, model.ID)
@@ -76,7 +82,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string) error 
 
 				// Process each version
 				for _, version := range versions {
-					destinationPath := filepath.Join(a.Config.Storage.Path, model.Type, model.BaseModel)
+					destinationPath := filepath.Join(a.Config.Storage.Path, model.Type, version.BaseModel)
 					if err := a.StorageBackend.EnsureDirectory(destinationPath); err != nil {
 						log.Printf("Failed to create directory for model %s: %v", model.Name, err)
 						continue
@@ -85,7 +91,7 @@ func (a *Archiver) Run(query string, types []string, baseModels []string) error 
 					// Save main file
 					if len(version.Files) > 0 {
 						file := version.Files[0]
-						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, version.Name, file.Type); err != nil {
+						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config); err != nil {
 							log.Printf("Failed to save file for model %s: %v", model.Name, err)
 							continue
 						}

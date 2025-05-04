@@ -16,7 +16,6 @@ type Model struct {
 	ID            int64          `json:"id"`
 	Name          string         `json:"name"`
 	Type          string         `json:"type"`
-	BaseModel     string         `json:"baseModel"`
 	ModelVersions []ModelVersion `json:"modelVersions"`
 }
 
@@ -229,8 +228,11 @@ func GetModels(request CivitModelsRequest, token string) ([]Model, Metadata, err
 		for _, model := range result.Items {
 			// Check if the model's baseModel exists in the requested set
 			// Ensure `model.BaseModel` field exists and is populated correctly in the Model struct
-			if _, exists := baseModelSet[model.BaseModel]; exists {
-				filteredModels = append(filteredModels, model)
+			for _, version := range model.ModelVersions {
+				if _, exists := baseModelSet[version.BaseModel]; exists {
+					filteredModels = append(filteredModels, model)
+					break // No need to check other versions if one matches
+				}
 			}
 		}
 		log.Printf("Filtered models count: %d (based on BaseModels: %v)", len(filteredModels), request.BaseModels)

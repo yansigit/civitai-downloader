@@ -2,14 +2,16 @@ package storage
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/yansigit/civitai-downloader/config"
+	"github.com/yansigit/civitai-downloader/downloader"
 )
 
 // StorageBackend defines an interface for saving files, metadata, and descriptions
 type StorageBackend interface {
-	SaveFile(sourceURL, destinationPath, modelName, fileType string) error
+	SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config) error
 	SaveMetadata(metadata []byte, destinationPath, modelName string) error
 	SaveDescription(description string, destinationPath, modelName string) error
 	EnsureDirectory(path string) error
@@ -29,19 +31,13 @@ func (lsb *LocalStorageBackend) EnsureDirectory(path string) error {
 }
 
 // SaveFile saves a file from a source URL to the local filesystem
-func (lsb *LocalStorageBackend) SaveFile(sourceURL, destinationPath, modelName, fileType string) error {
-	// Placeholder for actual download logic
-	filePath := filepath.Join(destinationPath, fmt.Sprintf("%s.%s", modelName, fileType))
-	file, err := os.Create(filePath)
+func (lsb *LocalStorageBackend) SaveFile(sourceURL, destinationPath string, model downloader.Model, version downloader.ModelVersion, config config.Config) error {
+	// Construct the full file path
+	// Use the downloader.DownloadAll function to download the file
+	file := version.Files[0]
+	err := downloader.DownloadAll(file, destinationPath, model, version, &config)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	// Simulate writing content
-	_, err = io.WriteString(file, "Downloaded content from "+sourceURL)
-	if err != nil {
-		return fmt.Errorf("failed to write to file: %w", err)
+		return fmt.Errorf("failed to download file from %s: %w", sourceURL, err)
 	}
 
 	return nil

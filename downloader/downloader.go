@@ -16,7 +16,6 @@ import (
 // ModelVersion represents the model version information from the Civitai API
 type ModelVersion struct {
 	ID            int64    `json:"id"`
-	ModelID       int64    `json:"modelId"`
 	Name          string   `json:"name"`
 	BaseModel     string   `json:"baseModel"`     // Added
 	BaseModelType string   `json:"baseModelType"` // Added
@@ -30,11 +29,12 @@ type ModelVersion struct {
 
 // File represents a file associated with the model version
 type File struct {
-	ID          int64   `json:"id"`
-	SizeKB      float64 `json:"sizeKB"`
-	Name        string  `json:"name"`
-	Type        string  `json:"type"`
-	DownloadURL string  `json:"downloadUrl"`
+	ID          int64        `json:"id"`
+	SizeKB      float64      `json:"sizeKB"`
+	Name        string       `json:"name"`
+	Type        string       `json:"type"`
+	DownloadURL string       `json:"downloadUrl"`
+	Metadata    FileMetadata `json:"metadata"` // Added metadata field
 }
 
 // Image represents an image associated with the model version
@@ -80,7 +80,7 @@ const (
 )
 
 // DownloadFile downloads a single file from the given URL to the specified path and returns the saved filename
-func DownloadFile(outputPath, url, modelVersionId string) (string, error) {
+func DownloadFile(outputPath, url, modelVersionId, token string) (string, error) {
 	outputDir := filepath.Dir(outputPath)
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -88,14 +88,23 @@ func DownloadFile(outputPath, url, modelVersionId string) (string, error) {
 		}
 	}
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to download file: %w", err)
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	if strings.Contains(url, "civitai.com") {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to download file: %w, response body: %s", err, string(body))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected status code: %d, response body: %s", resp.StatusCode, string(body))
 	}
 
 	header := resp.Header.Get("content-disposition")
@@ -136,33 +145,35 @@ func DownloadFile(outputPath, url, modelVersionId string) (string, error) {
 }
 
 // DownloadAll downloads all available files for a given model ID
-func DownloadAll(modelType, baseModelPath, modelID string, config *config.Config) error {
-	modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
-	resp, err := http.Get(modelURL)
-	if err != nil {
-		return fmt.Errorf("failed to fetch model version: %w", err)
-	}
-	defer resp.Body.Close()
+func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config) error {
+	modelID := fmt.Sprintf("%d", modelVersion.ID)
+	// modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
+	// resp, err := http.Get(modelURL)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to fetch model version: %w", err)
+	// }
+	// defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch model version. Status code: %d", resp.StatusCode)
-	}
+	// if resp.StatusCode != http.StatusOK {
+	// 	return fmt.Errorf("failed to fetch model version. Status code: %d", resp.StatusCode)
+	// }
 
-	var modelVersion ModelVersion
-	err = json.NewDecoder(resp.Body).Decode(&modelVersion)
-	if err != nil {
-		return fmt.Errorf("failed to decode model version response: %w", err)
-	}
+	// var modelVersion ModelVersion
+	// err = json.NewDecoder(resp.Body).Decode(&modelVersion)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to decode model version response: %w", err)
+	// }
 
 	// Create a subdirectory based on modelType
-	dir := filepath.Join(baseModelPath, modelType)
+	dir := filepath.Join(baseModelPath, model.Type)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create model type directory: %w", err)
 	}
 
-	modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
+	// modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
+	modelVersion.DownloadURL = modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
 
-	outputPath, err := DownloadFile(filepath.Join(dir, filepath.Base(baseModelPath)), modelVersion.DownloadURL, modelID)
+	outputPath, err := DownloadFile(filepath.Join(dir, filepath.Base(baseModelPath)), modelVersion.DownloadURL, modelID, config.Civitai.Token)
 	if err != nil {
 		fmt.Println("Download failed from URL:", modelVersion.DownloadURL)
 		return fmt.Errorf("failed to download model file: %w", err)
@@ -173,12 +184,12 @@ func DownloadAll(modelType, baseModelPath, modelID string, config *config.Config
 	for _, image := range modelVersion.Images {
 		if image.Type == "image" {
 			imgPath := fmt.Sprintf("%s.preview.png", filepath.Join(filepath.Dir(outputPath), baseName))
-			if _, err := DownloadFile(imgPath, image.URL, modelID); err != nil {
+			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token); err != nil {
 				return fmt.Errorf("failed to download image: %w", err)
 			}
 		} else if image.Type == "video" {
 			imgPath := fmt.Sprintf("%s.preview.mp4", filepath.Join(filepath.Dir(outputPath), baseName))
-			if _, err := DownloadFile(imgPath, image.URL, modelID); err != nil {
+			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token); err != nil {
 				return fmt.Errorf("failed to download image: %w", err)
 			}
 		}
