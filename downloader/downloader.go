@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -92,7 +91,6 @@ func DownloadFile(outputPath, url, modelVersionId, token string, dryrun bool) (s
 			return "", fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
-	log.Printf("Directory created or already exists: %s", outputDir)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -171,11 +169,15 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	// }
 
 	// Create a subdirectory based on modelType
-	dir := filepath.Join(baseModelPath, model.Type)
+	var dir string
+	if !strings.Contains(baseModelPath, model.Type) {
+		dir = filepath.Join(baseModelPath, model.Type)
+	} else {
+		dir = baseModelPath
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create model type directory: %w", err)
 	}
-	log.Printf("Directory created or already exists: %s", dir)
 
 	// modelVersion.DownloadURL = modelVersion.DownloadURL + "?token=" + config.Civitai.Token
 	modelVersion.DownloadURL = modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
@@ -190,19 +192,19 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 
 	for i, image := range modelVersion.Images {
 		if image.Type == "image" {
-			imgPath := fmt.Sprintf("%s.preview.png", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
+			imgPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.%d.preview.png", baseName, i))
 			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
 				return "", fmt.Errorf("failed to download image: %w", err)
 			}
 		} else if image.Type == "video" {
-			imgPath := fmt.Sprintf("%s.preview.mp4", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
+			imgPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.%d.preview.mp4", baseName, i))
 			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
 				return "", fmt.Errorf("failed to download image: %w", err)
 			}
 		}
 	}
 
-	metadataPath := fmt.Sprintf("%s.civitai.info", outputPath)
+	metadataPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.civitai.info", baseName))
 	if !dryrun {
 		metadata, err := json.MarshalIndent(modelVersion, "", "  ")
 		if err != nil {
@@ -215,7 +217,7 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 
 	// Handle optional description pointer
 	if modelVersion.Description != nil && *modelVersion.Description != "" {
-		descPath := fmt.Sprintf("%s.description.txt", filepath.Join(filepath.Dir(outputPath), baseName))
+		descPath := filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s.description.txt", baseName))
 		// Dereference the pointer to get the string value
 		if err := os.WriteFile(descPath, []byte(*modelVersion.Description), 0644); err != nil {
 			// Log warning instead of failing the whole download?

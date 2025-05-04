@@ -2,7 +2,6 @@ package archiver
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -132,12 +131,12 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					}
 
 					// Save metadata
-					metadata, err := json.Marshal(version)
-					if err == nil {
-						if err := a.StorageBackend.SaveMetadata(metadata, destinationPath, version.Name); err != nil {
-							log.Printf("Failed to save metadata for model %s: %v", model.Name, err)
-						}
-					}
+					// metadata, err := json.Marshal(version)
+					// if err == nil {
+					// 	if err := a.StorageBackend.SaveMetadata(metadata, destinationPath, version.Name); err != nil {
+					// 		log.Printf("Failed to save metadata for model %s: %v", model.Name, err)
+					// 	}
+					// }
 
 					// Save description
 					if version.Description != nil && *version.Description != "" {
