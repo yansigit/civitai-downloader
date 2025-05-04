@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -24,7 +25,9 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 	var backend storage.StorageBackend
 
 	// Initialize the appropriate storage backend
-	if cfg.Storage.Type == "local" {
+	if cfg.Storage.Type == "fuckingfast" {
+		backend = &storage.RemoteStorageBackend{AuthToken: cfg.Storage.AuthToken}
+	} else if cfg.Storage.Type == "local" {
 		backend = &storage.LocalStorageBackend{}
 	} else {
 		return nil, fmt.Errorf("unsupported storage type: %s", cfg.Storage.Type)
@@ -109,6 +112,35 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 						if err != nil {
 							log.Printf("Failed to download file for model %s: %v", model.Name, err)
 							continue
+						}
+
+						// Upload all files in the same folder to remote storage if backend is RemoteStorageBackend
+						if remoteBackend, ok := a.StorageBackend.(*storage.RemoteStorageBackend); ok {
+							files, err := os.ReadDir(destinationPath)
+							if err != nil {
+								log.Printf("Failed to read directory for model %s: %v", model.Name, err)
+								continue
+							}
+
+							for _, f := range files {
+								if !f.IsDir() {
+									filePath := filepath.Join(destinationPath, f.Name())
+									err := remoteBackend.UploadFile(filePath, f.Name(), "", "")
+									if err != nil {
+										log.Printf("Failed to upload file %s for model %s: %v", f.Name(), model.Name, err)
+										continue
+									}
+									log.Printf("Successfully uploaded file %s for model %s to remote storage", f.Name(), model.Name)
+
+									// Remove the file from local storage after successful upload
+									err = os.Remove(filePath)
+									if err != nil {
+										log.Printf("Failed to delete local file %s for model %s: %v", f.Name(), model.Name, err)
+									} else {
+										log.Printf("Successfully deleted local file %s for model %s", f.Name(), model.Name)
+									}
+								}
+							}
 						}
 
 						// Log the archived model in the database

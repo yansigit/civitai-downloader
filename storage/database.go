@@ -57,10 +57,6 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create archived_models table: %w", err)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
-	}
-
 	return db, nil
 }
 
