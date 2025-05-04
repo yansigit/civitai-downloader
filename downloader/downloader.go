@@ -151,7 +151,7 @@ func DownloadFile(outputPath, url, modelVersionId, token string, dryrun bool) (s
 }
 
 // DownloadAll downloads all available files for a given model ID
-func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, dryrun bool) error {
+func DownloadAll(file File, baseModelPath string, model Model, modelVersion ModelVersion, config *config.Config, dryrun bool) (string, error) {
 	modelID := fmt.Sprintf("%d", modelVersion.ID)
 	// modelURL := fmt.Sprintf("%s%s", APIModelVersions, modelID)
 	// resp, err := http.Get(modelURL)
@@ -173,7 +173,7 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	// Create a subdirectory based on modelType
 	dir := filepath.Join(baseModelPath, model.Type)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create model type directory: %w", err)
+		return "", fmt.Errorf("failed to create model type directory: %w", err)
 	}
 	log.Printf("Directory created or already exists: %s", dir)
 
@@ -183,7 +183,7 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	outputPath, err := DownloadFile(filepath.Join(dir, model.Name, modelVersion.Name), modelVersion.DownloadURL, modelID, config.Civitai.Token, dryrun)
 	if err != nil {
 		fmt.Println("Download failed from URL:", modelVersion.DownloadURL)
-		return fmt.Errorf("failed to download model file: %w", err)
+		return "", fmt.Errorf("failed to download model file: %w", err)
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(outputPath), filepath.Ext(outputPath))
@@ -192,12 +192,12 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 		if image.Type == "image" {
 			imgPath := fmt.Sprintf("%s.preview.png", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
 			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
-				return fmt.Errorf("failed to download image: %w", err)
+				return "", fmt.Errorf("failed to download image: %w", err)
 			}
 		} else if image.Type == "video" {
 			imgPath := fmt.Sprintf("%s.preview.mp4", filepath.Join(filepath.Dir(outputPath), baseName, fmt.Sprintf("%d", i)))
 			if _, err := DownloadFile(imgPath, image.URL, modelID, config.Civitai.Token, dryrun); err != nil {
-				return fmt.Errorf("failed to download image: %w", err)
+				return "", fmt.Errorf("failed to download image: %w", err)
 			}
 		}
 	}
@@ -206,10 +206,10 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	if !dryrun {
 		metadata, err := json.MarshalIndent(modelVersion, "", "  ")
 		if err != nil {
-			return fmt.Errorf("failed to marshal metadata: %w", err)
+			return "", fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 		if err := os.WriteFile(metadataPath, metadata, 0644); err != nil {
-			return fmt.Errorf("failed to save metadata: %w", err)
+			return "", fmt.Errorf("failed to save metadata: %w", err)
 		}
 	}
 
@@ -225,7 +225,7 @@ func DownloadAll(file File, baseModelPath string, model Model, modelVersion Mode
 	}
 
 	fmt.Printf("Successfully downloaded model files to %s\n", filepath.Dir(outputPath))
-	return nil
+	return outputPath, nil
 }
 
 // GetModelID retrieves the model ID from the URL

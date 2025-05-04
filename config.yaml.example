@@ -1,23 +1,13 @@
 civitai:
   token: "YOUR_CIVITAI_API_TOKEN"
 
-# Optional filters to apply when archiving
-filters:
-  # Leave empty or omit to include all types
-  types:
-    - Checkpoint
-    - LORA
-  # Leave empty or omit to include all base models
-  baseModels:
-    - SDXL 1.0
-    - Pony
-
 # Where to save the downloaded models
 storage:
   # Type can be "local" or a cloud provider name (e.g., "google_drive", "pixeldrain" - future)
   type: "local"
   # Path for local storage, or root identifier for cloud storage
   path: "/path/to/your/model/archive"
+  database_path: "/path/to/your/database.sqlite" # Path to SQLite database for logging
   # Cloud-specific settings (future)
   # cloud_settings:
   #   credentials_file: "/path/to/credentials.json"

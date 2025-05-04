@@ -16,6 +16,7 @@ type Filters struct {
 type StorageTarget struct {
 	Type          string            `yaml:"type"`
 	Path          string            `yaml:"path"`
+	DatabasePath  string            `yaml:"database_path"`            // Path to SQLite database
 	CloudSettings map[string]string `yaml:"cloud_settings,omitempty"` // Optional cloud settings
 }
 

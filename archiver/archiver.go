@@ -1,10 +1,12 @@
 package archiver
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/yansigit/civitai-downloader/config"
 	"github.com/yansigit/civitai-downloader/downloader"
@@ -15,6 +17,7 @@ import (
 type Archiver struct {
 	Config         *config.Config
 	StorageBackend storage.StorageBackend
+	DB             *sql.DB // SQLite database handle
 }
 
 // NewArchiver creates a new Archiver instance
@@ -28,9 +31,16 @@ func NewArchiver(cfg *config.Config, query string) (*Archiver, error) {
 		return nil, fmt.Errorf("unsupported storage type: %s", cfg.Storage.Type)
 	}
 
+	// Initialize SQLite database
+	db, err := storage.InitDB(cfg.Storage.DatabasePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
 	return &Archiver{
 		Config:         cfg,
 		StorageBackend: backend,
+		DB:             db,
 	}, nil
 }
 
@@ -96,9 +106,28 @@ func (a *Archiver) Run(query string, types []string, baseModels []string, dryrun
 					// Save main file
 					if len(version.Files) > 0 {
 						file := version.Files[0]
-						if err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config, dryrun); err != nil {
+						filePath, err := a.StorageBackend.SaveFile(file.DownloadURL, destinationPath, model, version, *a.Config, dryrun)
+						if err != nil {
 							log.Printf("Failed to save file for model %s: %v", model.Name, err)
 							continue
+						}
+
+						// Log the archived model in the database
+						if !dryrun {
+							archivedInfo := storage.ArchivedModelInfo{
+								ModelID:      model.ID,
+								ModelName:    model.Name,
+								VersionID:    version.ID,
+								VersionName:  version.Name,
+								BaseModel:    version.BaseModel,
+								FileType:     file.Type,
+								FileFormat:   file.Metadata.Format,
+								FilePath:     filePath,
+								DownloadedAt: time.Now(),
+							}
+							if err := storage.LogModel(a.DB, archivedInfo); err != nil {
+								log.Printf("Failed to log model %s in database: %v", model.Name, err)
+							}
 						}
 					}
 
