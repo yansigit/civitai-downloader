@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/yansigit/civitai-downloader/config"
+	"github.com/yansigit/civitai-downloader/logger"
+	"github.com/yansigit/civitai-downloader/progress"
 	"github.com/yansigit/civitai-downloader/storage"
 )
 
@@ -39,6 +37,7 @@ type File struct {
 	Type        string       `json:"type"`
 	DownloadURL string       `json:"downloadUrl"`
 	Metadata    FileMetadata `json:"metadata"`
+	Primary     bool         `json:"primary"`
 }
 
 // Image represents an image associated with the model version
@@ -61,18 +60,6 @@ const (
 	APIModels        = "https://civitai.com/api/v1/models/"
 )
 
-// SanitizeFilename sanitizes filenames by replacing illegal characters
-func SanitizeFilename(name string) string {
-	illegalChars := regexp.MustCompile(`[<>:"/\\|?*-]`)
-	trailingChars := regexp.MustCompile(`[ .]+$`)
-	sanitized := illegalChars.ReplaceAllString(name, "_")
-	sanitized = trailingChars.ReplaceAllString(sanitized, "")
-	if sanitized == "" || sanitized == "." || sanitized == ".." {
-		return "downloaded_file"
-	}
-	return sanitized
-}
-
 // DownloadAll downloads the main file for a model version and returns its path/ID,
 // along with raw metadata and preview content if enabled in config.
 // It uses the provided storage backend ONLY for the main file.
@@ -84,19 +71,33 @@ func DownloadAll(file File, baseStoragePath string, model Model, modelVersion Mo
 		return "", nil, nil, fmt.Errorf("failed to check database for model version: %w", err)
 	}
 	if exists {
-		log.Printf("Model version %d (%s) is already downloaded. Skipping.", modelVersion.ID, modelVersion.Name)
+		logger.Info("Model version <yellow>%d</yellow> (<cyan>%s</cyan>) is already downloaded. Skipping.", modelVersion.ID, modelVersion.Name)
 		// Correct return for skipped: path/ID, metadata bytes, preview bytes, error
+		return "", nil, nil, nil
+	}
+	if !model.Nsfw && config.Civitai.NSFWOnly {
+		logger.Info("<pink>Skipping non-NSFW model</pink>: <yellow>%s</yellow> (ID: <cyan>%d</cyan>)", model.Name, model.ID)
+		return "", nil, nil, nil
+	}
+	// Skip large files (over configured limit)
+	if file.SizeKB > float64(config.Civitai.MaxFileSizeMB*1024) {
+		logger.Warning("File <yellow>%s</yellow> is too large (<red>%.2f MB</red>). <pink>Skipping files over %dMB.</pink>", file.Name, file.SizeKB/1024, config.Civitai.MaxFileSizeMB)
+		return "", nil, nil, nil
+	}
+	// Skip models that are not SafeTensor or PickleTensor format
+	if file.Metadata.Format != "SafeTensor" && file.Metadata.Format != "PickleTensor" {
+		logger.Warning("File <yellow>%s</yellow> has unsupported format: <red>%s</red>. Skipping non-SafeTensor/PickleTensor files.", file.Name, file.Metadata.Format)
 		return "", nil, nil, nil
 	}
 
 	if dryrun {
-		log.Printf("Dryrun: Would download files for model %s version %s", model.Name, modelVersion.Name)
+		logger.Info("Dryrun: Would download files for model <cyan>%s</cyan> version <yellow>%s</yellow>", model.Name, modelVersion.Name)
 		// Correct return for dryrun: path/ID, metadata bytes, preview bytes, error
 		return SanitizeFilename(file.Name), nil, nil, nil
 	}
 
 	downloadURL := modelVersion.DownloadURL + "?type=" + file.Type + "&format=" + file.Metadata.Format + "&token=" + config.Civitai.Token
-	log.Printf("Attempting download from: %s", downloadURL)
+	logger.Info("Attempting download from: <cyan>%s</cyan>", downloadURL)
 
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
@@ -114,90 +115,79 @@ func DownloadAll(file File, baseStoragePath string, model Model, modelVersion Mo
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		log.Printf("Error response body from %s: %s", downloadURL, string(bodyBytes))
+		logger.Error("Error response from <yellow>%s</yellow>: <red>%s</red>", downloadURL, string(bodyBytes))
 		return "", nil, nil, fmt.Errorf("unexpected status code %d from %s", resp.StatusCode, downloadURL)
 	}
 
 	finalFileName := SanitizeFilename(file.Name)
-	relativePath := path.Join(model.Type, model.Name, modelVersion.Name)
+	relativePath := filepath.Join(model.Type, model.Name, modelVersion.Name)
 
-	bar := progressbar.NewOptions(
-		int(resp.ContentLength),
-		progressbar.OptionSetDescription(fmt.Sprintf("[Downloading %s] ", finalFileName)),
-		progressbar.OptionSetWidth(15),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[green]=[reset]",
-			SaucerHead:    "[green]>[reset]",
-			SaucerPadding: " ",
-			BarStart:      "|",
-			BarEnd:        "|",
-		}),
-	)
-	progressReader := progressbar.NewReader(resp.Body, bar)
+	// Create a progress bar for the download
+	var progressReader io.Reader = resp.Body
+	if progress.IsTerminal() {
+		bar := progress.NewProgressBar(resp.ContentLength, "[Downloading] ", "green")
+		progressReader = progress.NewProgressReader(resp.Body, bar)
+	}
 
-	// Save ONLY the main file using the storage backend
-	savedFilePathOrID, err := storageBackend.SaveFile(&progressReader, baseStoragePath, relativePath, finalFileName)
+	// Save the file using the storage backend
+	savedFilePathOrID, err := storageBackend.SaveFile(progressReader, baseStoragePath, relativePath, finalFileName)
 	if err != nil {
 		fmt.Println() // Ensure progress bar newline
-		log.Printf("Failed to save file %s using storage backend: %v", finalFileName, err)
+		logger.Error("Failed to save file <yellow>%s</yellow> using storage backend: %v", finalFileName, err)
 		return "", nil, nil, fmt.Errorf("failed to save model file via backend: %w", err)
 	}
 	fmt.Println() // Ensure progress bar newline
 
-	log.Printf("Successfully saved main file: %s (Identifier: %s)", finalFileName, savedFilePathOrID)
+	logger.Info("Successfully saved main file: <green>%s</green> (Identifier: <yellow>%s</yellow>)", finalFileName, savedFilePathOrID)
 
 	var metadataContent []byte
 	var previewContents [][]byte
 
 	// Prepare Previews if enabled
-	if config.Storage.SavePreviews {
-		baseName := strings.TrimSuffix(finalFileName, filepath.Ext(finalFileName))
+	if config.Storage.SavePreviews && len(modelVersion.Images) > 0 {
 		previewContents = make([][]byte, 0, len(modelVersion.Images)) // Pre-allocate slice
+		logger.Debug("Processing preview images...")
+
+		// Process preview images
 		for i, image := range modelVersion.Images {
-			imgExt := ".png"
-			if urlExt := filepath.Ext(image.URL); urlExt != "" && len(urlExt) <= 5 {
-				imgExt = urlExt
+			if !strings.HasPrefix(image.URL, "http") {
+				image.URL = "https://civitai.com" + image.URL
 			}
-			imgFileName := SanitizeFilename(fmt.Sprintf("%s.%d.preview%s", baseName, i, imgExt)) // Used for logging only now
-			log.Printf("Attempting download for preview image: %s", image.URL)
 
-			imgResp, err := http.Get(image.URL)
+			logger.Info("Downloading preview image <yellow>%d/%d</yellow>: <cyan>%s</cyan>", i+1, len(modelVersion.Images), image.URL)
+
+			// Download the image
+			resp, err := http.Get(image.URL)
 			if err != nil {
-				log.Printf("Warning: failed to download preview image %s: %v", image.URL, err)
+				logger.Error("Failed to download preview image: <red>%v</red>", err)
 				continue
 			}
-			defer imgResp.Body.Close()
+			defer resp.Body.Close()
 
-			if imgResp.StatusCode != http.StatusOK {
-				log.Printf("Warning: failed to download preview image %s, status: %s", image.URL, imgResp.Status)
+			if resp.StatusCode != http.StatusOK {
+				logger.Warning("Failed to download preview image: status code <red>%d</red>", resp.StatusCode)
 				continue
 			}
 
-			// Read image bytes
-			imgBytes, err := io.ReadAll(imgResp.Body)
+			// Read the image data
+			imageData, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.Printf("Warning: failed to read preview image bytes for %s: %v", image.URL, err)
+				logger.Error("Failed to read preview image data: <red>%v</red>", err)
 				continue
 			}
-			previewContents = append(previewContents, imgBytes)
-			log.Printf("Successfully read preview image %d bytes for %s", i, imgFileName)
 
-			// Local saving is removed, archiver will handle based on storage type
+			previewContents = append(previewContents, imageData)
 		}
 	}
 
-	// Prepare Metadata if enabled
+	// Save metadata as JSON
 	if config.Storage.SaveMetadata {
-		metadataFileName := fmt.Sprintf("%s.civitai.info", strings.TrimSuffix(finalFileName, filepath.Ext(finalFileName))) // Used for logging only now
-		metadataContent, err = json.MarshalIndent(modelVersion, "", "  ")                                                  // Assign to the return variable
+		metadataJSON, err := json.MarshalIndent(modelVersion, "", "  ")
 		if err != nil {
-			log.Printf("Warning: failed to marshal metadata for %s: %v", finalFileName, err)
-			metadataContent = nil // Ensure it's nil on error
+			logger.Error("Failed to marshal metadata: <red>%v</red>", err)
 		} else {
-			log.Printf("Successfully marshalled metadata for: %s", metadataFileName)
-			// Local saving is removed, archiver will handle based on storage type
+			metadataContent = metadataJSON
+			logger.Debug("Successfully marshalled metadata for: <cyan>%s</cyan>", finalFileName)
 		}
 	}
 

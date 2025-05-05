@@ -24,8 +24,14 @@ type StorageTarget struct {
 }
 
 type Config struct {
+	Logger struct {
+		Level             string `yaml:"level"`
+		EnableFileLogging bool   `yaml:"enable_file_logging"`
+	} `yaml:"logger"`
 	Civitai struct {
-		Token string `yaml:"token"`
+		Token         string `yaml:"token"`
+		NSFWOnly      bool   `yaml:"nsfw_only"`
+		MaxFileSizeMB int    `yaml:"max_file_size_mb"`
 	} `yaml:"civitai"`
 	ComfyUI struct {
 		BaseModelPath string `yaml:"base_model_path"`
