@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,15 +21,15 @@ func (fsb *FileditchStorageBackend) EnsureDirectory(path string) error {
 	return nil
 }
 
-// SaveFile uploads a file to fileditch.com using an io.Reader
-func (fsb *FileditchStorageBackend) SaveFile(body io.Reader, baseStoragePath, relativePath, fileName string) (string, error) {
+// SaveFile uploads a file to fileditch.com using content []byte
+func (fsb *FileditchStorageBackend) SaveFile(db *sql.DB, modelFileID int64, fileCategoryForChunks string, content []byte, baseStoragePath, relativePath, fileName string) (string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	part, err := writer.CreateFormFile("files[]", fileName)
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(part, body); err != nil {
+	if _, err := io.Copy(part, bytes.NewReader(content)); err != nil {
 		return "", err
 	}
 	writer.Close()
@@ -36,8 +37,8 @@ func (fsb *FileditchStorageBackend) SaveFile(body io.Reader, baseStoragePath, re
 	// Show upload progress bar if terminal
 	var reqBody io.Reader = &buf
 	if progress.IsTerminal() {
-		bar := progress.NewProgressBar(int64(buf.Len()), "[Uploading to Fileditch] ", "yellow")
-		reqBody = progress.NewProgressReader(&buf, bar)
+		bar := progress.NewProgressBar(int64(len(content)), fmt.Sprintf("[Uploading %s to Fileditch] ", fileName), "yellow")
+		reqBody = progress.NewProgressReader(bytes.NewReader(buf.Bytes()), bar)
 		defer func() { os.Stdout.Write([]byte("\n")) }()
 	}
 

@@ -80,10 +80,10 @@ func DownloadAll(file File, baseStoragePath string, model Model, modelVersion Mo
 		return "", nil, nil, nil
 	}
 	// Skip large files (over configured limit)
-	if file.SizeKB > float64(config.Civitai.MaxFileSizeMB*1024) {
-		logger.Warning("File <yellow>%s</yellow> is too large (<red>%.2f MB</red>). <pink>Skipping files over %dMB.</pink>", file.Name, file.SizeKB/1024, config.Civitai.MaxFileSizeMB)
-		return "", nil, nil, nil
-	}
+	// if file.SizeKB > float64(config.Civitai.MaxFileSizeMB*1024) {
+	// 	logger.Warning("File <yellow>%s</yellow> is too large (<red>%.2f MB</red>). <pink>Skipping files over %dMB.</pink>", file.Name, file.SizeKB/1024, config.Civitai.MaxFileSizeMB)
+	// 	return "", nil, nil, nil
+	// }
 	// Skip models that are not SafeTensor or PickleTensor format
 	if file.Metadata.Format != "SafeTensor" && file.Metadata.Format != "PickleTensor" {
 		logger.Warning("File <yellow>%s</yellow> has unsupported format: <red>%s</red>. Skipping non-SafeTensor/PickleTensor files.", file.Name, file.Metadata.Format)
@@ -129,14 +129,29 @@ func DownloadAll(file File, baseStoragePath string, model Model, modelVersion Mo
 		progressReader = progress.NewProgressReader(resp.Body, bar)
 	}
 
-	// Save the file using the storage backend
-	savedFilePathOrID, err := storageBackend.SaveFile(progressReader, baseStoragePath, relativePath, finalFileName)
+	// Read all content from progressReader into a byte slice
+	// This is necessary because the new StorageBackend.SaveFile interface expects []byte
+	fileContent, err := io.ReadAll(progressReader)
 	if err != nil {
-		fmt.Println() // Ensure progress bar newline
+		fmt.Println() // Ensure progress bar newline if it was active
+		logger.Error("Failed to read downloaded content for <yellow>%s</yellow>: %v", finalFileName, err)
+		return "", nil, nil, fmt.Errorf("failed to read downloaded content for %s: %w", finalFileName, err)
+	}
+	// The progress bar, if active, will complete upon io.ReadAll. A newline is good.
+	if progress.IsTerminal() {
+		fmt.Println()
+	}
+
+	// Save the file using the storage backend
+	// savedFilePathOrID, err := storageBackend.SaveFile(progressReader, baseStoragePath, relativePath, finalFileName)
+	// Updated call to match new StorageBackend.SaveFile signature:
+	savedFilePathOrID, err := storageBackend.SaveFile(db, modelVersion.ID, "model", fileContent, baseStoragePath, relativePath, finalFileName)
+	if err != nil {
+		// fmt.Println() // Newline handled above after ReadAll or if no progress bar
 		logger.Error("Failed to save file <yellow>%s</yellow> using storage backend: %v", finalFileName, err)
 		return "", nil, nil, fmt.Errorf("failed to save model file via backend: %w", err)
 	}
-	fmt.Println() // Ensure progress bar newline
+	// fmt.Println() // Newline handled above
 
 	logger.Info("Successfully saved main file: <green>%s</green> (Identifier: <yellow>%s</yellow>)", finalFileName, savedFilePathOrID)
 

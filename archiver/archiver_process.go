@@ -1,7 +1,6 @@
 package archiver
 
 import (
-	"bytes"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -128,8 +127,7 @@ func (a *Archiver) _processAssociatedFiles(version downloader.ModelVersion, mode
 		// Save metadata if fetched
 		if metadataContent != nil {
 			metadataFileName := fmt.Sprintf("%s_%d.civitai.info", modelNameSanitized, version.ID)
-			metadataReader := bytes.NewReader(metadataContent)
-			metadataURL, err := a.StorageBackend.SaveFile(metadataReader, "", "", metadataFileName) // No path needed
+			metadataURL, err := a.StorageBackend.SaveFile(a.DB, version.ID, "metadata", metadataContent, "", "", metadataFileName)
 			if err != nil {
 				logger.Warning("Failed to save metadata file '<yellow>%s</yellow>' to <yellow>%s</yellow>: <red>%v</red>", metadataFileName, a.Config.Storage.Type, err)
 			} else {
@@ -169,9 +167,9 @@ func (a *Archiver) _processAssociatedFiles(version downloader.ModelVersion, mode
 					}
 				}
 
-				previewReader := bytes.NewReader(previewBytes)
+				// previewReader := bytes.NewReader(previewBytes) // Not needed, previewBytes is []byte
 				// Pomf/Fileditch SaveFile ignores baseStoragePath and relativePath
-				previewURL, err := a.StorageBackend.SaveFile(previewReader, "", "", originalPreviewFilename) // Use original filename for upload
+				previewURL, err := a.StorageBackend.SaveFile(a.DB, version.ID, "preview", previewBytes, "", "", originalPreviewFilename)
 				if err != nil {
 					logger.Warning("Failed to save preview file '<yellow>%s</yellow>' to <yellow>%s</yellow>: <red>%v</red>", originalPreviewFilename, a.Config.Storage.Type, err)
 				} else {
@@ -205,9 +203,9 @@ func (a *Archiver) _processAssociatedFiles(version downloader.ModelVersion, mode
 		if metadataContent != nil {
 			// Use baseFileName derived from primary file for consistency
 			metadataFileName := fmt.Sprintf("%s.civitai.info", baseFileName)
-			metadataReader := bytes.NewReader(metadataContent)
+			// metadataReader := bytes.NewReader(metadataContent) // Not needed
 			// Pass the original relativePath calculated in processModelVersion
-			_, err := a.StorageBackend.SaveFile(metadataReader, baseStoragePath, relativePath, metadataFileName)
+			_, err := a.StorageBackend.SaveFile(a.DB, version.ID, "metadata", metadataContent, baseStoragePath, relativePath, metadataFileName)
 			if err != nil {
 				logger.Warning("Failed to save local metadata file '<yellow>%s</yellow>' in '<yellow>%s</yellow>': <red>%v</red>", metadataFileName, relativePath, err)
 			} else {
@@ -228,9 +226,9 @@ func (a *Archiver) _processAssociatedFiles(version downloader.ModelVersion, mode
 				}
 				// Use baseFileName derived from primary file for consistency
 				previewFileName := downloader.SanitizeFilename(fmt.Sprintf("%s.%d.preview%s", baseFileName, i, imgExt))
-				previewReader := bytes.NewReader(previewBytes)
+				// previewReader := bytes.NewReader(previewBytes) // Not needed
 				// Pass the original relativePath calculated in processModelVersion
-				_, err := a.StorageBackend.SaveFile(previewReader, baseStoragePath, relativePath, previewFileName)
+				_, err := a.StorageBackend.SaveFile(a.DB, version.ID, "preview", previewBytes, baseStoragePath, relativePath, previewFileName)
 				if err != nil {
 					logger.Warning("Failed to save local preview file '<yellow>%s</yellow>' in '<yellow>%s</yellow>': <red>%v</red>", previewFileName, relativePath, err)
 				} else {

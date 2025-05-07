@@ -1,8 +1,8 @@
 package storage
 
 import (
+	"database/sql"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -19,7 +19,7 @@ func (lsb *LocalStorageBackend) EnsureDirectory(path string) error {
 	return nil
 }
 
-func (lsb *LocalStorageBackend) SaveFile(body io.Reader, baseStoragePath, relativePath, fileName string) (string, error) {
+func (lsb *LocalStorageBackend) SaveFile(db *sql.DB, modelFileID int64, fileCategoryForChunks string, content []byte, baseStoragePath, relativePath, fileName string) (string, error) {
 	fullDir := filepath.Join(baseStoragePath, relativePath)
 	if err := lsb.EnsureDirectory(fullDir); err != nil {
 		return "", fmt.Errorf("ensure directory failed: %w", err)
@@ -30,7 +30,7 @@ func (lsb *LocalStorageBackend) SaveFile(body io.Reader, baseStoragePath, relati
 		return "", fmt.Errorf("create file failed: %w", err)
 	}
 	defer f.Close()
-	if _, err := io.Copy(f, body); err != nil {
+	if _, err := f.Write(content); err != nil {
 		os.Remove(fullPath)
 		return "", fmt.Errorf("write file failed: %w", err)
 	}
